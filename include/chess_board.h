@@ -30,15 +30,6 @@ void mark_rook_moved(CastlingRights *crights, ChessColor color, int kingside);
 
 void initialize_board(ChessBoard *board);
 
-void generate_pawn_moves(ChessBoard *board, ChessMove *moves, int *num_moves, Piece piece_type);
-void generate_bishop_moves(ChessBoard *board, ChessMove *moves, int *num_moves, Piece piece_type);
-void generate_rook_moves(ChessBoard *board, ChessMove *moves, int *num_moves, Piece piece_type);
-void generate_queen_moves(ChessBoard *board, ChessMove *moves, int *num_moves, Piece piece_type);
-void generate_knight_moves(ChessBoard *board, ChessMove *moves, int *num_moves, Piece piece_type);
-void generate_king_moves(ChessBoard *board, ChessMove *moves, int *num_moves, Piece piece_type);
-void generate_moves(ChessBoard *board, ChessMove *moves, int *num_moves);
-
-
 void generate_bitboard_from_moves(ChessMove *moves, int num_moves, unsigned long long *bitboard);
 
 
