@@ -1,74 +1,82 @@
-# Project Name
+# ♟️ Chess Engine & Utilities
 
-Chess Engine & Utilities
+A modular, bitboard-based chess engine written in C, featuring efficient move generation, a simple GUI, and performance testing tools.
 
-## Overview
+## 🚀 Features
 
-This repository contains a C-based chess engine along with supporting utilities and a simple GUI. The core is a bitboard-based move generator and executor, with features for:
+- **Bitboard Representation**: Utilizes 64-bit bitboards for fast and memory-efficient board representation.
+- **Comprehensive Move Generation**: Supports all standard chess moves, including:
+  - Castling
+  - En passant
+  - Pawn promotions
+- **Move Application**: Accurately applies moves, updating game state with respect to castling rights, en passant targets, and promotions.
+- **Simple GUI**: Provides a basic graphical interface for rendering the board and handling user input.
+- **Utility Libraries**: Includes array utilities for general-purpose array handling and timer utilities for performance measurement.
+- **Performance Testing**: Features a perft (performance test) utility to validate move generation correctness and benchmark performance.
 
-* **Board representation** using 64-bit bitboards
-* **Move generation** for all piece types (pawn, knight, bishop, rook, queen, king) including special moves (castling, en passant, promotions)
-* **Move application** with castling rights, en passant, and promotions
-* **Simple GUI** for rendering the board and handling user input
-* **Array utilities** (array operations, broadcasting, allocations) for general-purpose array handling
-* **Timer** utilities for performance measurement
+## 📁 Repository Structure
 
-## Repository Structure
-
-```
+```plaintext
 include/                    # Public headers
-  ├─ chess_board.h          # Board and move structs
-  ├─ chess_bitboard.h       # Low-level bitboard helpers
-  ├─ chess_gui.h            # GUI interface
-  ├─ move_generation.h      # Move generation 
-  └─ ...
-src/                        # Source files
-  ├─ chess_board.c          # Board initialization & applying of moves
-  ├─ move_generation.c      # Move generation implementations
-  ├─ chess_bitboard.c       # Bitboard primitives
-  ├─ chess_gui.c            # GUI implementation
-  ├─ gui.c                  # SDL low level implementation
-  ├─ main.c                 # CLI front-end and entry point
-  └─ ...
+├── chess_board.h           # Board and move structures
+├── chess_bitboard.h        # Low-level bitboard helpers
+├── chess_gui.h             # GUI interface
+├── move_generation.h       # Move generation functions
+└── ...                     # Additional headers
 
-README.md                   # This file
-...
+src/                        # Source files
+├── chess_board.c           # Board and move implementations
+├── chess_bitboard.c        # Bitboard helper implementations
+├── chess_gui.c             # GUI implementations
+├── move_generation.c       # Move generation implementations
+└── ...                     # Additional source files
+
+images/                     # Images for documentation and GUI
+
+makefile                    # Build configuration
+README.md                   # Project documentation
 ```
 
-## Build & Installation
+## 🛠️ Build Instructions
 
-1. **Prerequisites:**
+Ensure you have a C compiler (e.g., `gcc`) installed. Then, build the project using the provided `makefile`:
 
-   * GCC or Clang
-   * Make
+```bash
+make
+```
 
-2. **Build:**
+This will compile the source files and generate the executable binaries.
 
-   ```bash
-   make
-   ```
+## 🧪 Running Perft Tests
 
-3. **Run:**
+To validate move generation and benchmark performance, use the perft test utility.
 
-    ```bash
-     make run
-     ```
+The `run_perft_tests_up_to` function allows you to run perft tests up to a specified depth:
 
+```c
+void run_perft_tests_up_to(int max_depth);
+```
 
-## Usage
+For example, to run tests up to depth 5:
 
-* **Interactive Play:**
+```c
+run_perft_tests_up_to(5);
+```
 
-  * Use mouse to select and move pieces in the GUI.
-  * Press b to enable the bitboard masks, use arrows to change the piece
+This function will output the number of nodes generated at each depth, along with timing and nodes-per-second metrics.
 
+## 🖼️ GUI Usage
 
+The project includes a simple GUI for visualizing the chessboard and interacting with the engine.
 
-## Testing
+To launch the GUI:
 
-* To be implemented
+```bash
+./chess
+```
 
-## Future Work
+This will open a window displaying the current board state, allowing you to make moves by clicking.
 
-* Optimize move generation with magic bitboards
-* Implement min-max etc
+## 🤝 Contributing
+
+Contributions are welcome! If you'd like to contribute to this project, please fork the repository and submit a pull request.
