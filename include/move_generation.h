@@ -14,4 +14,6 @@ void generate_knight_moves(ChessBoard *board, ChessMove *moves, int *num_moves, 
 void generate_king_moves(ChessBoard *board, ChessMove *moves, int *num_moves, Piece piece_type);
 void generate_moves(ChessBoard *board, ChessMove *moves, int *num_moves);
 
+void verify_king_safety(ChessBoard *board, ChessMove *moves, int *num_moves);
+void print_board(ChessBoard *board);
 #endif // __MOVE_GENERATION_H__

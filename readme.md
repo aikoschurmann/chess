@@ -40,7 +40,7 @@ README.md                   # This file
 1. **Prerequisites:**
 
    * GCC or Clang
-   * Make (optional)
+   * Make
 
 2. **Build:**
 

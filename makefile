@@ -22,7 +22,7 @@ OBJ_FILES = $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(SRC_FILES)) \
 DEP_FILES = $(OBJ_FILES:.o=.d)
 
 # Flags
-CFLAGS = $(shell sdl2-config --cflags) -Iinclude -MMD -MP
+CFLAGS = $(shell sdl2-config --cflags) -Iinclude -MMD -MP -g 
 
 LDFLAGS = $(shell sdl2-config --libs) -lSDL2_image -lm
 

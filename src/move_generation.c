@@ -1,8 +1,58 @@
 #include "move_generation.h"
+#include "stdio.h"
 
 int is_attacked(ChessBoard *board, ChessColor color, int tile) {
-    return 0;
+    if (tile < 0 || tile > 63) {
+        return 0; // Invalid tile
+    }
+    ChessMove moves[256];
+    int num_moves = 0;
+    ChessBoard copy = *board;
+    copy.current_turn = !color;
+    generate_moves(&copy, moves, &num_moves);
+    //printf("Number of moves: %d\n", num_moves);
+    Bitboard attacked_tiles = 0x0000000000000000;
+    generate_bitboard_from_moves(moves, num_moves, &attacked_tiles);
+    // Check if the tile is attacked by the opposing color
+    return (attacked_tiles & (1ULL << tile)) != 0;
+    //return 0;
+
 }
+
+#include <stdio.h>
+
+
+void print_board(ChessBoard *board) {
+    const char *unicode_pieces[2][6] = {
+        {"♟", "♞", "♝", "♜", "♛", "♚"},
+        {"♙", "♘", "♗", "♖", "♕", "♔"} // White: P, N, B, R, Q, K
+    
+    };
+
+    printf("  +---+---+---+---+---+---+---+---+\n");
+    for (int rank = 7; rank >= 0; rank--) {
+        printf("%d |", rank + 1);
+        for (int file = 0; file < 8; file++) {
+            int tile = rank * 8 + file;
+            const char *piece = " ";
+            for (int color = 0; color < 2; color++) {
+                for (int type = 0; type < 6; type++) {
+                    if (board->pieces[color][type] & (1ULL << tile)) {
+                        piece = unicode_pieces[color][type];
+                        goto found_piece;
+                    }
+                }
+            }
+        found_piece:
+            printf(" %s |", piece);
+        }
+        printf("\n  +---+---+---+---+---+---+---+---+\n");
+    }
+
+    printf("    a   b   c   d   e   f   g   h\n");
+    printf("Current turn: %s\n", board->current_turn == WHITE ? "White" : "Black");
+}
+
 
 ChessMove generate_move(int start_tile, int end_tile, Piece piece_type, Piece promotion, MoveType move_type) {
     ChessMove move;
@@ -237,11 +287,11 @@ void generate_king_moves(ChessBoard *board, ChessMove *moves, int *num_moves, Pi
             int king_dest = king_start + 2;  // Move to G1 or G8
             int squares[] = {king_start + 1};  // F1, G1 (or F8, G8)
 
+
             if (!(occupied & kingside_masks[board->current_turn]) &&
-                !is_attacked(board, board->current_turn, king_start) &&
+                !(board, board->current_turn, king_start) &&
                 !is_attacked(board, board->current_turn, squares[0]) &&
                 !is_attacked(board, board->current_turn, king_dest)) {
-
                 ChessMove move = generate_move(king_start, king_dest, piece_type, NO_PROMOTION, MOVE_CASTLING);
                 move.is_castling = 1;
                 move.rook_location = king_start + 3;
@@ -261,11 +311,10 @@ void generate_king_moves(ChessBoard *board, ChessMove *moves, int *num_moves, Pi
                 !is_attacked(board, board->current_turn, squares[0]) &&
                 !is_attacked(board, board->current_turn, squares[1]) &&
                 !is_attacked(board, board->current_turn, king_dest)) {
-
                 ChessMove move = generate_move(king_start, king_dest, piece_type, NO_PROMOTION, MOVE_CASTLING);
                 move.is_castling = 1;
                 move.rook_location = king_start - 4;
-                move.rook_end_location = king_start - 1;
+                move.rook_end_location = king_start - 2;
                 moves[(*num_moves)++] = move;
             }
         }
@@ -281,4 +330,38 @@ void generate_moves(ChessBoard *board, ChessMove *moves, int *num_moves) {
     generate_queen_moves(board, moves, num_moves, QUEEN);
     generate_knight_moves(board, moves, num_moves, KNIGHT);
     generate_king_moves(board, moves, num_moves, KING);
+}
+
+void verify_king_safety(ChessBoard *board, ChessMove *moves, int *num_moves) {
+    static ChessMove verified_moves[500];
+    int num_verified_moves = 0;
+    ChessColor moving_side = board->current_turn;
+
+    for (int i = 0; i < *num_moves; i++) {
+        ChessBoard copy = *board;
+        apply_move(&copy, &moves[i]);
+
+        if (copy.pieces[moving_side][KING] == 0) {
+            fprintf(stderr, "BUG: King disappeared after move\n");
+            printf("pre-move:\n");
+            print_board(board);
+            printf("post-move:\n");
+            print_board(&copy);
+            continue;
+        }
+        int king_tile = __builtin_ctzll(copy.pieces[moving_side][KING]);
+        
+        if (!is_attacked(&copy, moving_side, king_tile)) {
+            verified_moves[num_verified_moves++] = moves[i];
+        }
+    }
+
+    if (*num_moves > 100){
+        printf("Number of moves: %d\n", *num_moves);
+    }
+
+    for (int i = 0; i < num_verified_moves; i++) {
+        moves[i] = verified_moves[i];
+    }
+    *num_moves = num_verified_moves;
 }

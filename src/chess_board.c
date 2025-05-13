@@ -107,7 +107,8 @@ void apply_promotion    (ChessBoard *b, ChessMove *m) {
 void apply_double_push  (ChessBoard *b, ChessMove *m) {
     b->pieces[b->current_turn][PAWN] &= ~(1ULL << m->start_tile);
     b->pieces[b->current_turn][PAWN] |= 1ULL << m->end_tile;
-    b->en_passant_tile = (m->start_tile + m->end_tile) / 2;
+    // Set the en-passant target to the square “between” start and end
+    b->en_passant_tile = (m->start_tile + m->end_tile) >> 1;
 }
 
 void apply_en_passant   (ChessBoard *b, ChessMove *m) {
@@ -146,9 +147,10 @@ void clear_castling(CastlingRights *cr, ChessColor color, Piece piece, int file)
     }
 }
 
-void apply_move(ChessBoard *board, ChessMove *move) {
-    // 0) Handle capture before moving
+void apply_move(ChessBoard *board, const ChessMove *move) {
+    // 0) pre-move 
     check_if_piece_captured(board, move);
+    board->en_passant_tile = -1; // Reset en passant tile
 
     // 1) clear any castling rights impacted by king/rook movement
     clear_castling(&board->castling_rights,
@@ -162,5 +164,6 @@ void apply_move(ChessBoard *board, ChessMove *move) {
     // 3) shared housekeeping
     board->combined[WHITE] = generate_combined(board->pieces[WHITE]);
     board->combined[BLACK] = generate_combined(board->pieces[BLACK]);
-    board->current_turn = !board->current_turn;
+    board->current_turn = !board->current_turn; // Switch turn
+    board->last_move = *move; // Save the last move
 }

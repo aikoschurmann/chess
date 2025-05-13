@@ -6,9 +6,13 @@
 #include "input.h"
 #include "chess_board.h"
 #include "move_generation.h"
+#include "perft.h"
 
 
 int main(int argc, char const *argv[]) {
+
+   
+    
 
     DebugState debugstate = {PAWN, 1, 0};  // Start with Pawn, white's bitboard, draw bitboards off
     ChessBoard board;
@@ -28,7 +32,10 @@ int main(int argc, char const *argv[]) {
     initialize_bitboards();
     initialize_board(&board);
     initialize_timer();
-    
+
+    run_perft_tests_up_to(5); // Run perft tests up to depth 5
+
+
 
     //board.current_turn = BLACK;
 
@@ -56,6 +63,10 @@ int main(int argc, char const *argv[]) {
         //draw_bitboard_mask(moves_mask, 0, 255, 0, 100); // Draw the moves mask (DEBUG)
         //draw_bitboard_mask(0x8080808080808080, 255, 0, 255, 100); // Draw the diagonal mask (DEBUG)
 
+        if (is_key_down(SDL_SCANCODE_R)) {
+            // Reset the board
+            initialize_board(&board);
+        }
 
         if (mouse_clicked == 1) {
             int x = mouse_location[0];
@@ -68,6 +79,7 @@ int main(int argc, char const *argv[]) {
             num_tile_moves = 0;
 
             generate_moves(&board, moves, &num_moves);
+            verify_king_safety(&board, moves, &num_moves);
 
             
             for (int i = 0; i < num_moves; i++) {

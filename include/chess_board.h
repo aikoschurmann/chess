@@ -39,6 +39,6 @@ void apply_en_passant(ChessBoard *board, ChessMove *move);
 void apply_double_push(ChessBoard *board, ChessMove *move);
 void apply_promotion(ChessBoard *board, ChessMove *move);
 
-void apply_move(ChessBoard *board, ChessMove *move);
+void apply_move(ChessBoard *board, const ChessMove *move);
 
 #endif // CHESS_BOARD_H
