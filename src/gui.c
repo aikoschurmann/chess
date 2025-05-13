@@ -10,6 +10,7 @@ static Uint8 previous_keyboard_state[SDL_NUM_SCANCODES]; // Previous keyboard st
 
 int mouse_location[2] = {0, 0};
 int mouse_clicked = 0;
+int mouse_down = 0;
 int should_continue = 1;
 
 void initialize_keyboard_state() {
@@ -48,9 +49,17 @@ void handle_events() {
             case SDL_MOUSEBUTTONDOWN:
                 mouse_location[0] = event.button.x;
                 mouse_location[1] = event.button.y;
-                mouse_clicked = 1;
+                if (mouse_clicked == 0) {
+                    mouse_clicked = 1;
+                } else if (mouse_clicked == 1) {
+                    mouse_clicked = 2;
+                }
+
+                mouse_down = 1;
+
                 break;
             case SDL_MOUSEBUTTONUP:
+                mouse_down = 0;
                 mouse_clicked = 0;
                 break;
             default:

@@ -35,3 +35,12 @@ void initialize_bitboards() {
 Piece cycle_bitboard(Piece current_bitboard, int direction) {
     return (current_bitboard + direction + 6) % 6; // Ensures it stays within 0 to 5
 }
+
+
+Bitboard generate_combined(Bitboard *pieces) {
+    Bitboard combined = 0;
+    for (int i = 0; i < 6; i++) {
+        combined |= pieces[i];
+    }
+    return combined;
+}

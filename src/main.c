@@ -1,54 +1,103 @@
 #include "gui.h"
 #include "chess_gui.h"
 #include "chess_bitboard.h"
+#include "timer.h"
+#include "debugstate.h"
+#include "input.h"
+#include "chess_board.h"
+#include "move_generation.h"
 
 
-
-// Main entry point
 int main(int argc, char const *argv[]) {
+
+    DebugState debugstate = {PAWN, 1, 0};  // Start with Pawn, white's bitboard, draw bitboards off
+    ChessBoard board;
+    ChessMove moves[256];
+    int num_moves = 0;
+
+    ChessMove tile_moves[256];
+    int num_tile_moves = 0;
+    unsigned long long moves_mask = 0;
+
+    int selected_tile = -1;
+
     // Initialize everything
     initialize_window("Chess Engine", SCREEN_WIDTH, SCREEN_HEIGHT);
     initialize_keyboard_state();
     initialize_sprites();
     initialize_bitboards();
+    initialize_board(&board);
+    initialize_timer();
+    
 
-    // Current bitboard setup (Pawn to start with)
-    Piece current_bitboard = PAWN;
-    int white = 1; // 1 for white, 0 for black
-    int draw_bitboard_mode = 1;
+    //board.current_turn = BLACK;
 
+    // Generate moves and bitboard mask
+    //generate_moves(&board, moves, &num_moves);
+    //printf("Number of moves: %d\n", num_moves);
+    //enerate_bitboard_from_moves(moves, num_moves, &moves_mask);
+
+
+    // Main loop
     while (should_continue) {
-        // Handle key events
-        if (is_key_down(SDL_SCANCODE_LEFT)) {
-            current_bitboard = cycle_bitboard(current_bitboard, -1); // Go to previous bitboard
-        }
-
-        if (is_key_down(SDL_SCANCODE_RIGHT)) {
-            current_bitboard = cycle_bitboard(current_bitboard, 1); // Go to next bitboard
-        }
-
-        if (is_key_down(SDL_SCANCODE_SPACE) || is_key_down(SDL_SCANCODE_UP)) {
-            white = !white; // Toggle between white and black
-        }
-
-        if (is_key_down(SDL_SCANCODE_B)) {
-            draw_bitboard_mode = !draw_bitboard_mode; // Toggle between drawing bitboards and not drawing them
-        }
-
         // Process events (keyboard and mouse)
         handle_events();
 
+        // Handle key events
+        handle_input(&debugstate); // Handle input and update debugstate
+
         // Clear screen and render new frame
         clear_window();
-        draw_chess_board();
 
-        // Draw the selected bitboard (based on current piece and color)
-        if (white && draw_bitboard_mode) {
-            draw_bitboard(white_bitboards[current_bitboard], 255, 0, 0, 100); // Red for white
-        } else if (!white && draw_bitboard_mode) {
-            draw_bitboard(black_bitboards[current_bitboard], 0, 0, 255, 100); // Blue for black
+        // Draw the chess board and pieces
+        draw_chess_board();
+        draw_pieces(&board);
+        draw_selected_bitboard(&debugstate, &board); // Draw the selected bitboard (DEBUG)
+        //draw_bitboard_mask(moves_mask, 0, 255, 0, 100); // Draw the moves mask (DEBUG)
+        //draw_bitboard_mask(0x8080808080808080, 255, 0, 255, 100); // Draw the diagonal mask (DEBUG)
+
+
+        if (mouse_clicked == 1) {
+            int x = mouse_location[0];
+            int y = mouse_location[1];
+
+            screen_to_chess_coordinates(&x, &y);
+            int tile = y * 8 + x;
+            
+            num_moves = 0;
+            num_tile_moves = 0;
+
+            generate_moves(&board, moves, &num_moves);
+
+            
+            for (int i = 0; i < num_moves; i++) {
+                if (moves[i].start_tile == tile) {
+                    tile_moves[num_tile_moves++] = moves[i];
+                    selected_tile = tile;
+                }
+            }
+
+            if (num_moves == 0) {
+                selected_tile = -1;
+            }
+
+            if (selected_tile != -1) {
+                for (int i = 0; i < num_moves; i++) {
+                    if (moves[i].start_tile == selected_tile && moves[i].end_tile == tile) {
+                        
+                        apply_move(&board, &moves[i]);
+
+                        break;
+                    }
+                }
+            }
+            
+            generate_bitboard_from_moves(tile_moves, num_tile_moves, &moves_mask);            
         }
 
+        draw_bitboard_mask(moves_mask, 0, 255, 0, 100);
+        //draw_bitboard_mask(0x0101010101010101, 255, 0, 0, 100);
+        
         // Present the rendered frame
         present_window();
     }
