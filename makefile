@@ -22,7 +22,7 @@ OBJ_FILES = $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(SRC_FILES)) \
 DEP_FILES = $(OBJ_FILES:.o=.d)
 
 # Flags
-CFLAGS = $(shell sdl2-config --cflags) -Iinclude -MMD -MP -g 
+CFLAGS = $(shell sdl2-config --cflags) -Iinclude -MMD -MP -g -O3
 
 LDFLAGS = $(shell sdl2-config --libs) -lSDL2_image -lm
 
@@ -46,6 +46,8 @@ $(OBJ_DIR)/%.o: $(TEST_DIR)/%.c
 # Clean up object files and binaries
 clean:
 	rm -rf $(OBJ_DIR)/* $(OUT_DIR)/*
+
+
 
 # Run tests
 run: all
