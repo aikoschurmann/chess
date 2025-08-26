@@ -184,6 +184,10 @@ static void run_gui_mode(void) {
     ui_state.last_move_from = -1;
     ui_state.last_move_to = -1;
     
+    // Initialize dynamic move history
+    init_move_history(&ui_state);
+    ui_state.board_history[0] = board;  // Save initial position
+    
     // Generate initial moves
     regenerate_moves(&board, moves, &num_moves);
     
@@ -206,6 +210,12 @@ static void run_gui_mode(void) {
             ui_state.last_move_to = -1;
             ui_state.current_player = board.current_turn;
             ui_state.move_count = 0;
+            
+            // Reset dynamic move history
+            cleanup_move_history(&ui_state);
+            init_move_history(&ui_state);
+            ui_state.board_history[0] = board;  // Reset board history
+            
             regenerate_moves(&board, moves, &num_moves);
             update_game_state(&board, moves, num_moves, &ui_state);
         }
@@ -238,8 +248,26 @@ static void run_gui_mode(void) {
             ui_state.last_move_to = -1;
             ui_state.current_player = board.current_turn;
             ui_state.move_count = 0;
-            regenerate_moves(&board, moves, &num_moves);
-            update_game_state(&board, moves, num_moves, &ui_state);
+        }
+        
+        // Handle move history navigation with arrow keys
+        if (is_key_down(SDL_SCANCODE_UP)) {
+            handle_move_history_keyboard(&ui_state, SDLK_UP);
+        }
+        if (is_key_down(SDL_SCANCODE_DOWN)) {
+            handle_move_history_keyboard(&ui_state, SDLK_DOWN);
+        }
+        if (is_key_down(SDL_SCANCODE_HOME)) {
+            handle_move_history_keyboard(&ui_state, SDLK_HOME);
+        }
+        if (is_key_down(SDL_SCANCODE_END)) {
+            handle_move_history_keyboard(&ui_state, SDLK_END);
+        }
+        if (is_key_down(SDL_SCANCODE_PAGEUP)) {
+            handle_move_history_keyboard(&ui_state, SDLK_PAGEUP);
+        }
+        if (is_key_down(SDL_SCANCODE_PAGEDOWN)) {
+            handle_move_history_keyboard(&ui_state, SDLK_PAGEDOWN);
         }
         
         // Handle mouse clicks for piece movement
@@ -257,6 +285,9 @@ static void run_gui_mode(void) {
         // Render everything
         render_game(&board, &debugstate, moves_mask, &ui_state);
     }
+    
+    // Cleanup dynamic memory before exit
+    cleanup_move_history(&ui_state);
 }
 
 static void handle_mouse_click(ChessBoard *board, ChessMove *moves, int *num_moves,
@@ -266,12 +297,27 @@ static void handle_mouse_click(ChessBoard *board, ChessMove *moves, int *num_mov
     int x = mouse_location[0];
     int y = mouse_location[1];
     
+    // First check if click is in move history panel
+    if (handle_move_history_click(x, y, ui_state)) {
+        // Move history click was handled, clear selection
+        *selected_tile = -1;
+        *num_tile_moves = 0;
+        *moves_mask = 0;
+        ui_state->selected_square = -1;
+        return;
+    }
+    
     screen_to_chess_coordinates_dynamic(&x, &y, ui_state);
     int tile = y * 8 + x;
     
     // Check if click is outside the board
     if (x < 0 || x >= 8 || y < 0 || y >= 8) {
         return;  // Ignore clicks outside the board
+    }
+    
+    // Only allow moves when viewing the current position
+    if (ui_state->viewing_move_index != -1) {
+        return;  // Can't make moves when viewing history
     }
     
     // Check if this is a move attempt (second click)
@@ -303,15 +349,29 @@ static int try_make_move(ChessBoard *board, ChessMove *moves, int num_moves,
             // Update UI state with move information
             ui_state->last_move_from = from_tile;
             ui_state->last_move_to = to_tile;
-            ui_state->move_count++;
+            ui_state->actual_move_count++;
+            ui_state->move_count = ui_state->actual_move_count;
+            ui_state->viewing_move_index = -1;  // Reset to current position
             
-            // Add move to history (simple notation for now)
-            if (ui_state->move_count <= 100) {
+            // Save board position to history
+            save_board_position(ui_state, board);
+            
+            // Add move to history - expand if needed
+            if (ui_state->actual_move_count > ui_state->move_history_capacity) {
+                expand_move_history(ui_state);
+            }
+            
+            if (ui_state->actual_move_count <= ui_state->move_history_capacity) {
                 char move_str[16];
                 sprintf(move_str, "%c%d-%c%d", 
                     'a' + (from_tile % 8), 8 - (from_tile / 8),
                     'a' + (to_tile % 8), 8 - (to_tile / 8));
-                strcpy(ui_state->move_history[ui_state->move_count - 1], move_str);
+                
+                // Allocate memory for the move string
+                ui_state->move_history[ui_state->actual_move_count - 1] = malloc(16 * sizeof(char));
+                if (ui_state->move_history[ui_state->actual_move_count - 1]) {
+                    strcpy(ui_state->move_history[ui_state->actual_move_count - 1], move_str);
+                }
             }
             
             return 1;  // Move successful
@@ -343,19 +403,22 @@ static void render_game(ChessBoard *board, DebugState *debugstate,
                        unsigned long long moves_mask, GameUIState *ui_state) {
     clear_window();
     
+    // Get the board we should be viewing (current or historical)
+    ChessBoard *viewing_board = get_viewing_board(ui_state, board);
+    
     draw_chess_board_dynamic(ui_state);
     
     // Draw highlights before pieces
     highlight_last_move(ui_state);
     highlight_selected_square(ui_state);
     
-    // Only draw move hints if enabled
-    if (ui_state->show_move_hints) {
+    // Only draw move hints if enabled and viewing current position
+    if (ui_state->show_move_hints && ui_state->viewing_move_index == -1) {
         draw_bitboard_mask_adaptive(moves_mask, ui_state);
     }
     
-    draw_pieces_dynamic(board, ui_state);
-    draw_selected_bitboard(debugstate, board, ui_state);
+    draw_pieces_dynamic(viewing_board, ui_state);
+    draw_selected_bitboard(debugstate, viewing_board, ui_state);
     
     // Draw coordinates if enabled
     draw_board_coordinates_dynamic(ui_state);

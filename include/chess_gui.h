@@ -42,7 +42,15 @@ typedef struct {
     int selected_square;
     int last_move_from;
     int last_move_to;
-    char move_history[100][16];  // Store up to 100 moves as strings
+    // Dynamic move history arrays
+    char **move_history;     // Dynamic array of move strings
+    ChessBoard *board_history;  // Dynamic array of board positions
+    int move_history_capacity;  // Current capacity of the arrays
+    
+    // Move history navigation
+    int viewing_move_index;  // Which move we're currently viewing (-1 = current position)
+    int actual_move_count;   // The actual number of moves played (vs viewing position)
+    int move_history_scroll_offset;  // For scrolling through move history
 } GameUIState;
 
 // Dynamic layout calculation functions
@@ -68,6 +76,21 @@ void draw_game_status(const GameUIState *ui_state);
 void highlight_last_move(GameUIState *ui_state);
 void highlight_selected_square(GameUIState *ui_state);
 void update_game_ui_state(GameUIState *ui_state, ChessBoard *board, int num_moves, int selected_tile);
+
+// Move history navigation
+int handle_move_history_click(int mouse_x, int mouse_y, GameUIState *ui_state);
+void navigate_to_move(GameUIState *ui_state, int move_index);
+void save_board_position(GameUIState *ui_state, ChessBoard *board);
+ChessBoard* get_viewing_board(GameUIState *ui_state, ChessBoard *current_board);
+
+// Dynamic move history management
+void init_move_history(GameUIState *ui_state);
+void cleanup_move_history(GameUIState *ui_state);
+void expand_move_history(GameUIState *ui_state);
+void handle_move_history_keyboard(GameUIState *ui_state, int key);
+void scroll_move_history(GameUIState *ui_state, int direction);
+void ensure_move_visible(GameUIState *ui_state);
+
 void chess_coordinates_to_screen(int *x, int *y);
 void screen_to_chess_coordinates(int *x, int *y);
 void chess_coordinates_to_screen_dynamic(int *x, int *y, GameUIState *ui_state);

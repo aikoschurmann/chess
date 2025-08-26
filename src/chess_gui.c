@@ -1,5 +1,7 @@
 #include "chess_gui.h"
 #include "gui.h"
+#include <stdlib.h>
+#include <string.h>
 
 // Chess board color palette - inspired by traditional wooden boards
 static const int LIGHT_SQUARE_COLOR[4] = {240, 217, 181, 255};  // Cream/buff color
@@ -292,10 +294,22 @@ void draw_ui_panel(GameUIState *ui_state) {
     int rows_can_show = inner_h / row_h;
     if (rows_can_show < 1) return;
 
-    // Compute which rows to show: show last rows (scroll-to-end behavior)
-    int total_rows = (ui_state->move_count + 1) / 2; // each row = a full move (white+black)
-    int start_row = total_rows - rows_can_show;
+    // Compute which rows to show with scroll support
+    int total_rows = (ui_state->actual_move_count + 1) / 2; // each row = a full move (white+black)
+    int start_row = ui_state->move_history_scroll_offset;
+    
+    // Auto-scroll to show latest moves if viewing current position
+    if (ui_state->viewing_move_index == -1) {
+        start_row = total_rows - rows_can_show;
+        if (start_row < 0) start_row = 0;
+        ui_state->move_history_scroll_offset = start_row;
+    }
+    
+    // Clamp scroll offset
     if (start_row < 0) start_row = 0;
+    if (start_row > total_rows - rows_can_show && total_rows > rows_can_show) {
+        start_row = total_rows - rows_can_show;
+    }
 
     // Column geometry: Move# | White | Black
     int col_num_w = 34;
@@ -323,24 +337,44 @@ void draw_ui_panel(GameUIState *ui_state) {
         int white_index = row_idx * 2;
         int black_index = white_index + 1;
 
-        // last move highlight: if the last move index matches either white_index or black_index, highlight row
-        int last_move_index = ui_state->move_count - 1;
-        int highlight = (last_move_index == white_index) || (last_move_index == black_index);
-
-        if (highlight) {
-            // subtle highlight behind the move text
-            set_color(60, 90, 150, 80);
-            draw_filled_rectangle(inner_x + col_num_w, row_y + 4, inner_w - col_num_w, row_h - 8);
-        }
-
         // White move text (left column)
-        if (white_index < ui_state->move_count && ui_state->move_history[white_index]) {
+        if (white_index < ui_state->actual_move_count && ui_state->move_history[white_index]) {
+            // Check if this white move should be highlighted
+            int white_viewing_highlight = (ui_state->viewing_move_index == white_index);
+            int white_last_move_highlight = (ui_state->actual_move_count - 1 == white_index);
+            
+            // Highlight individual white move if needed
+            if (white_viewing_highlight && ui_state->viewing_move_index != -1) {
+                // Yellow highlight for viewed position (when not current)
+                set_color(150, 120, 30, 100);
+                draw_filled_rectangle(inner_x + col_num_w, row_y + 4, col_white_w, row_h - 8);
+            } else if (white_last_move_highlight && ui_state->viewing_move_index == -1) {
+                // Blue highlight for current position (when viewing current)
+                set_color(60, 90, 150, 80);
+                draw_filled_rectangle(inner_x + col_num_w, row_y + 4, col_white_w, row_h - 8);
+            }
+            
             set_color(230, 230, 230, 255);
             draw_text(ui_state->move_history[white_index], inner_x + col_num_w + 8, row_y + 8, 220, 220, 220, main_font);
         }
 
         // Black move text (right column)
-        if (black_index < ui_state->move_count && ui_state->move_history[black_index]) {
+        if (black_index < ui_state->actual_move_count && ui_state->move_history[black_index]) {
+            // Check if this black move should be highlighted
+            int black_viewing_highlight = (ui_state->viewing_move_index == black_index);
+            int black_last_move_highlight = (ui_state->actual_move_count - 1 == black_index);
+            
+            // Highlight individual black move if needed
+            if (black_viewing_highlight && ui_state->viewing_move_index != -1) {
+                // Yellow highlight for viewed position (when not current)
+                set_color(150, 120, 30, 100);
+                draw_filled_rectangle(inner_x + col_num_w + col_white_w, row_y + 4, col_black_w, row_h - 8);
+            } else if (black_last_move_highlight && ui_state->viewing_move_index == -1) {
+                // Blue highlight for current position (when viewing current)
+                set_color(60, 90, 150, 80);
+                draw_filled_rectangle(inner_x + col_num_w + col_white_w, row_y + 4, col_black_w, row_h - 8);
+            }
+            
             set_color(200, 200, 200, 255);
             draw_text(ui_state->move_history[black_index], inner_x + col_num_w + col_white_w + 8, row_y + 8, 190, 190, 190, main_font);
         }
@@ -374,6 +408,11 @@ void draw_board_coordinates_dynamic(GameUIState *ui_state) {
 }
 
 void highlight_last_move(GameUIState *ui_state) {
+    // Only show last move highlights when viewing the current position
+    if (ui_state->viewing_move_index != -1) {
+        return;  // Don't show last move highlights when viewing historical positions
+    }
+    
     if (ui_state->last_move_from >= 0 && ui_state->last_move_to >= 0) {
         int square_size = get_square_size(ui_state->show_ui_panel);
         
@@ -439,5 +478,323 @@ void highlight_selected_square(GameUIState *ui_state) {
         }
         
         draw_filled_rectangle(x, y, square_size, square_size);
+    }
+}
+
+// Move history navigation functions
+int handle_move_history_click(int mouse_x, int mouse_y, GameUIState *ui_state) {
+    if (!ui_state->show_ui_panel) return 0;
+    
+    // Calculate move history panel bounds using the same logic as draw_ui_panel
+    int panel_x = get_ui_panel_x_offset(ui_state->show_ui_panel);
+    int panel_w = UI_PANEL_WIDTH;
+    int panel_h = SCREEN_HEIGHT;
+    int header_h = 72;
+    int xpad = 16;
+    
+    // Calculate ctrl_y the same way as in draw_ui_panel
+    int ctrl_y = header_h + 16;  // Controls start
+    ctrl_y += 22;  // "Controls" text
+    ctrl_y += 20;  // First line of controls
+    ctrl_y += 24;  // Second line of controls + spacing
+    ctrl_y += 40 + 20;  // Settings badge height + spacing
+    ctrl_y += 22;  // "Move History" text
+    
+    // Move history container bounds (same as draw_ui_panel)
+    int mh_x = panel_x + xpad;
+    int mh_w = panel_w - xpad * 2;
+    int mh_h = panel_h - ctrl_y - 24;
+    
+    // Check if click is within move history panel
+    if (mouse_x < mh_x || mouse_x > mh_x + mh_w || 
+        mouse_y < ctrl_y || mouse_y > ctrl_y + mh_h) {
+        return 0;
+    }
+    
+    // If no moves yet, return early
+    if (ui_state->actual_move_count == 0) {
+        return 0;
+    }
+    
+    // Calculate which move was clicked
+    int inner_x = mh_x + 10;
+    int inner_y = ctrl_y + 10;
+    int inner_w = mh_w - 20;
+    int inner_h = mh_h - 20;
+    
+    int row_h = 32;
+    int rows_can_show = inner_h / row_h;
+    if (rows_can_show < 1) return 0;
+    
+    // Use the current scroll offset instead of auto-calculating
+    int start_row = ui_state->move_history_scroll_offset;
+    
+    int clicked_row = (mouse_y - inner_y) / row_h;
+    if (clicked_row < 0 || clicked_row >= rows_can_show) return 0;
+    
+    int row_idx = start_row + clicked_row;
+    
+    // Determine which column (white or black move) was clicked
+    int col_num_w = 34;
+    int col_white_w = (inner_w - col_num_w) / 2;
+    int relative_x = mouse_x - inner_x;
+    
+    int move_index = -1;
+    if (relative_x >= col_num_w && relative_x < col_num_w + col_white_w) {
+        // White move clicked
+        move_index = row_idx * 2;
+    } else if (relative_x >= col_num_w + col_white_w) {
+        // Black move clicked
+        move_index = row_idx * 2 + 1;
+    }
+    
+    // Only navigate if the move exists
+    if (move_index >= 0 && move_index < ui_state->actual_move_count) {
+        navigate_to_move(ui_state, move_index);
+        return 1;
+    }
+    
+    return 0;
+}
+
+void navigate_to_move(GameUIState *ui_state, int move_index) {
+    // Move index -1 means current position, 0 means after first move, etc.
+    ui_state->viewing_move_index = move_index;
+    
+    // Update UI state based on the viewing position
+    if (move_index == -1 || move_index == ui_state->actual_move_count - 1) {
+        // Viewing current position
+        ui_state->move_count = ui_state->actual_move_count;
+        ui_state->viewing_move_index = -1;
+    } else {
+        // Viewing historical position
+        ui_state->move_count = move_index + 1;
+    }
+    
+    // Clear selection when navigating
+    ui_state->selected_square = -1;
+}
+
+void save_board_position(GameUIState *ui_state, ChessBoard *board) {
+    // Expand arrays if needed
+    if (ui_state->actual_move_count >= ui_state->move_history_capacity) {
+        expand_move_history(ui_state);
+    }
+    
+    // Save the current board position to history
+    int index = ui_state->actual_move_count;
+    if (index < ui_state->move_history_capacity) {
+        ui_state->board_history[index] = *board;
+    }
+}
+
+ChessBoard* get_viewing_board(GameUIState *ui_state, ChessBoard *current_board) {
+    // Return the board position we should be viewing
+    if (ui_state->viewing_move_index == -1) {
+        // Viewing current position
+        return current_board;
+    } else {
+        // Viewing historical position
+        int history_index = ui_state->viewing_move_index + 1;
+        if (history_index >= 0 && history_index < ui_state->move_history_capacity) {
+            return &ui_state->board_history[history_index];
+        }
+    }
+    return current_board;
+}
+
+// Helper function to calculate visible rows consistently
+int calculate_visible_rows(void) {
+    // Use the same calculation as in draw_ui_panel
+    int panel_h = SCREEN_HEIGHT;
+    int header_h = 72;
+    int xpad = 16;
+    
+    // Calculate move history panel height
+    int ctrl_y = header_h + 16 + 22 + 20 + 24 + 40 + 20 + 22; // Same as draw_ui_panel
+    int mh_h = panel_h - ctrl_y - 24;
+    int inner_h = mh_h - 20;
+    int row_h = 32;
+    int rows_can_show = inner_h / row_h;
+    
+    return (rows_can_show < 1) ? 1 : rows_can_show;
+}
+
+// Dynamic move history management functions
+void init_move_history(GameUIState *ui_state) {
+    ui_state->move_history_capacity = 100;  // Initial capacity
+    ui_state->move_history = malloc(ui_state->move_history_capacity * sizeof(char*));
+    ui_state->board_history = malloc(ui_state->move_history_capacity * sizeof(ChessBoard));
+    ui_state->actual_move_count = 0;
+    ui_state->viewing_move_index = -1;
+    ui_state->move_history_scroll_offset = 0;
+    
+    // Initialize move strings to NULL
+    for (int i = 0; i < ui_state->move_history_capacity; i++) {
+        ui_state->move_history[i] = NULL;
+    }
+}
+
+void cleanup_move_history(GameUIState *ui_state) {
+    if (ui_state->move_history) {
+        for (int i = 0; i < ui_state->actual_move_count; i++) {
+            if (ui_state->move_history[i]) {
+                free(ui_state->move_history[i]);
+            }
+        }
+        free(ui_state->move_history);
+        ui_state->move_history = NULL;
+    }
+    
+    if (ui_state->board_history) {
+        free(ui_state->board_history);
+        ui_state->board_history = NULL;
+    }
+    
+    ui_state->move_history_capacity = 0;
+    ui_state->actual_move_count = 0;
+}
+
+void expand_move_history(GameUIState *ui_state) {
+    int new_capacity = ui_state->move_history_capacity * 2;
+    
+    // Expand move history array
+    char **new_move_history = realloc(ui_state->move_history, new_capacity * sizeof(char*));
+    if (!new_move_history) return; // Failed to allocate
+    ui_state->move_history = new_move_history;
+    
+    // Expand board history array
+    ChessBoard *new_board_history = realloc(ui_state->board_history, new_capacity * sizeof(ChessBoard));
+    if (!new_board_history) return; // Failed to allocate
+    ui_state->board_history = new_board_history;
+    
+    // Initialize new slots to NULL
+    for (int i = ui_state->move_history_capacity; i < new_capacity; i++) {
+        ui_state->move_history[i] = NULL;
+    }
+    
+    ui_state->move_history_capacity = new_capacity;
+}
+
+void handle_move_history_keyboard(GameUIState *ui_state, int key) {
+    if (!ui_state->show_ui_panel || ui_state->actual_move_count == 0) return;
+    
+    int old_viewing_index = ui_state->viewing_move_index;
+    
+    switch (key) {
+        case SDLK_UP:
+            // Navigate to previous move
+            if (ui_state->viewing_move_index == -1) {
+                // Currently viewing latest, go to previous move
+                if (ui_state->actual_move_count > 0) {
+                    navigate_to_move(ui_state, ui_state->actual_move_count - 2);
+                }
+            } else if (ui_state->viewing_move_index > 0) {
+                navigate_to_move(ui_state, ui_state->viewing_move_index - 1);
+            }
+            break;
+            
+        case SDLK_DOWN:
+            // Navigate to next move
+            if (ui_state->viewing_move_index != -1) {
+                if (ui_state->viewing_move_index < ui_state->actual_move_count - 1) {
+                    navigate_to_move(ui_state, ui_state->viewing_move_index + 1);
+                } else {
+                    // Go to current position
+                    navigate_to_move(ui_state, -1);
+                }
+            }
+            break;
+            
+        case SDLK_HOME:
+            // Go to start of game
+            if (ui_state->actual_move_count > 0) {
+                navigate_to_move(ui_state, 0);
+            }
+            break;
+            
+        case SDLK_END:
+            // Go to current position
+            navigate_to_move(ui_state, -1);
+            break;
+            
+        case SDLK_PAGEUP:
+            scroll_move_history(ui_state, -1);
+            break;
+            
+        case SDLK_PAGEDOWN:
+            scroll_move_history(ui_state, 1);
+            break;
+    }
+    
+    // Auto-scroll to ensure the selected move is visible (if move changed)
+    if (ui_state->viewing_move_index != old_viewing_index) {
+        ensure_move_visible(ui_state);
+    }
+}
+
+void scroll_move_history(GameUIState *ui_state, int direction) {
+    int total_rows = (ui_state->actual_move_count + 1) / 2;
+    int max_visible_rows = calculate_visible_rows();
+    
+    if (direction < 0) {
+        // Scroll up
+        ui_state->move_history_scroll_offset = 
+            (ui_state->move_history_scroll_offset > 0) ? 
+            ui_state->move_history_scroll_offset - 1 : 0;
+    } else {
+        // Scroll down
+        int max_offset = total_rows - max_visible_rows;
+        if (max_offset < 0) max_offset = 0;
+        ui_state->move_history_scroll_offset = 
+            (ui_state->move_history_scroll_offset < max_offset) ? 
+            ui_state->move_history_scroll_offset + 1 : max_offset;
+    }
+}
+
+void ensure_move_visible(GameUIState *ui_state) {
+    int max_visible_rows = calculate_visible_rows();
+    
+    if (ui_state->viewing_move_index == -1) {
+        // Viewing current position - auto-scroll to end
+        int total_rows = (ui_state->actual_move_count + 1) / 2;
+        int max_offset = total_rows - max_visible_rows;
+        if (max_offset < 0) max_offset = 0;
+        ui_state->move_history_scroll_offset = max_offset;
+        return;
+    }
+    
+    // Calculate which row the selected move is in
+    int move_row = ui_state->viewing_move_index / 2;
+    
+    // Calculate visible range
+    int first_visible_row = ui_state->move_history_scroll_offset;
+    int last_visible_row = first_visible_row + max_visible_rows - 1;
+    
+    // Add some margin to make scrolling feel better (scroll a bit early)
+    int scroll_margin = 1;
+    
+    // Adjust scroll offset if needed
+    if (move_row < first_visible_row + scroll_margin) {
+        // Move is too close to top - scroll up
+        ui_state->move_history_scroll_offset = move_row - scroll_margin;
+        if (ui_state->move_history_scroll_offset < 0) {
+            ui_state->move_history_scroll_offset = 0;
+        }
+    } else if (move_row > last_visible_row - scroll_margin) {
+        // Move is too close to bottom - scroll down
+        ui_state->move_history_scroll_offset = move_row - max_visible_rows + 1 + scroll_margin;
+        
+        // Ensure we don't scroll past the end
+        int total_rows = (ui_state->actual_move_count + 1) / 2;
+        int max_offset = total_rows - max_visible_rows;
+        if (max_offset < 0) max_offset = 0;
+        
+        if (ui_state->move_history_scroll_offset > max_offset) {
+            ui_state->move_history_scroll_offset = max_offset;
+        }
+        if (ui_state->move_history_scroll_offset < 0) {
+            ui_state->move_history_scroll_offset = 0;
+        }
     }
 }
