@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 // Rook attack masks for each square on the chessboard, excluding the edges if no blockers
-static  uint64_t rook_masks[64] = {
+uint64_t rook_masks[64] = {
     0x000101010101017e,
     0x000202020202027c,
     0x000404040404047a,

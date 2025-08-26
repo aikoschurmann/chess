@@ -9,6 +9,7 @@
 
 // ANSI color codes
 #define GREEN   "\033[1;32m"
+#define RED     "\033[1;31m"
 #define YELLOW  "\033[1;33m"
 #define RESET   "\033[0m"
 
@@ -30,7 +31,7 @@ static const PerftTest perft_tests[] = {
 
 static uint64_t perft(const ChessBoard *board, int depth);
 static void format_move(const ChessMove *move, char *out, size_t size);
-static uint64_t perft_divide(const ChessBoard *board, int depth);
+uint64_t perft_divide(const ChessBoard *board, int depth);
 void run_perft_tests_up_to(int max_depth);
 
 #endif // __PERFT_H__

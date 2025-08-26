@@ -19,7 +19,7 @@ typedef struct {
     ChessColor current_turn;
     ChessMove last_move;
     int en_passant_tile;
-    CastlingRights *castling_rights;
+    CastlingRights castling_rights;
 } ChessBoard;
 
 void init_castling_rights(CastlingRights *crights);

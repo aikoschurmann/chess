@@ -4,20 +4,24 @@
 #define MAX_MOVES 256
 
 static uint64_t perft(const ChessBoard *board, int depth) {
-    if (depth == 0) return 1;
-
     ChessMove moves[MAX_MOVES];
     int num_moves = 0;
-    generate_moves(board, moves, &num_moves);
-    verify_king_safety(board, moves, &num_moves);
+    generate_moves_legacy((ChessBoard*)board, moves, &num_moves);
+    verify_king_safety((ChessBoard*)board, moves, &num_moves);
 
-    uint64_t nodes = 0;
-    for (int i = 0; i < num_moves; ++i) {
-        ChessBoard copy = *board;
-        apply_move(&copy, &moves[i]);
-        nodes += perft(&copy, depth - 1);
+    if (depth == 1) {
+        return num_moves;
     }
-    return nodes;
+
+    uint64_t total_nodes = 0;
+    for (int i = 0; i < num_moves; i++) {
+        ChessBoard temp_board = *board;
+        apply_move(&temp_board, &moves[i]);
+        uint64_t nodes = perft(&temp_board, depth - 1);
+        total_nodes += nodes;
+    }
+
+    return total_nodes;
 }
 
 static void format_move(const ChessMove *move, char *out, size_t size) {
@@ -39,11 +43,11 @@ static void format_move(const ChessMove *move, char *out, size_t size) {
     }
 }
 
-static uint64_t perft_divide(const ChessBoard *board, int depth) {
+uint64_t perft_divide(const ChessBoard *board, int depth) {
     ChessMove moves[MAX_MOVES];
     int num_moves = 0;
-    generate_moves(board, moves, &num_moves);
-    verify_king_safety(board, moves, &num_moves);
+    generate_moves_legacy((ChessBoard*)board, moves, &num_moves);
+    verify_king_safety((ChessBoard*)board, moves, &num_moves);
 
     uint64_t total = 0;
     printf("  Move     Nodes\n");
@@ -81,8 +85,8 @@ void run_perft_tests_up_to(int max_depth) {
     ChessBoard board;
     initialize_board(&board); // Assumes this sets up the starting position
 
-    printf("%5s | %15s | %8s | %10s\n", "Depth", "Expected", "Time", "Nodes/s");
-    printf("------+-----------------+----------+------------\n");
+    printf("%5s | %15s | %8s | %10s | %10s\n", "Depth", "Expected", "Time", "Nodes/s", "got");
+    printf("------+-----------------+----------+------------+------------\n");
 
     for (size_t i = 0; i < sizeof(perft_tests) / sizeof(perft_tests[0]); ++i) {
         int depth = perft_tests[i].depth;
@@ -94,10 +98,11 @@ void run_perft_tests_up_to(int max_depth) {
         char nps_buf[32];
         format_nps(nodes / time, nps_buf, sizeof(nps_buf));
 
-        const char *color = (nodes == perft_tests[i].expected_nodes) ? GREEN : YELLOW;
+        const char *color = (nodes == perft_tests[i].expected_nodes) ? GREEN : RED;
 
-        printf("%s%5d | %15llu | %6.2fs | %10s%s\n",
-            color, depth, (unsigned long long)nodes, time, nps_buf, RESET
+        unsigned long long expected = perft_tests[i].expected_nodes;
+        printf("%s%5d | %15llu | %6.2fs | %10s | %10llu%s\n",
+            color, depth, (unsigned long long)expected, time, nps_buf, (unsigned long long)nodes, RESET
         );
 
     }

@@ -2,8 +2,8 @@
 #define __MAGIC_BITBOARDS_H__
 
 #include <stdint.h>
-#include "rook_masks.h"
-#include "bishop_masks.h"
+//#include "rook_masks.h"
+//#include "bishop_masks.h"
 
 
 
@@ -29,17 +29,12 @@ typedef struct MagicEntry {
 
  // Direction vectors
 
- const int ROOK_DIRS[4][2] = {
-    { 0,  1}, { 0, -1},
-    { 1,  0}, {-1,  0}
-};
+extern const int ROOK_DIRS[4][2];
+extern const int BISHOP_DIRS[4][2];
 
-static const int BISHOP_DIRS[4][2] = {
-    { 1,  1},  // up–right
-    { 1, -1},  // up–left
-    {-1,  1},  // down–right
-    {-1, -1},  // down–left
-};
+uint64_t new_rook_masks[64];   // precomputed masks for rooks
+uint64_t new_bishop_masks[64]; // precomputed masks for bishops
+
 // __attribute__((aligned(64))) is used to ensure that the data is aligned to 64 bytes for performance reasons
 __attribute__((aligned(64))) MagicEntry rook_magics[64];      // magic numbers for rooks
 __attribute__((aligned(64))) MagicEntry bishop_magics[64];    // magic numbers for bishops
@@ -52,6 +47,15 @@ uint64_t get_rook_attack(int square, uint64_t blockers);
 uint64_t get_bishop_attack(int square, uint64_t blockers);
 uint64_t get_queen_attack(int square, uint64_t blockers);
 
+// Initialize and cleanup functions
+void initialize_magic_bitboards();
+void cleanup_magic_bitboards();
+
+// Helper functions for debugging/testing
+uint64_t mask_sliding(int square, const int dirs[4][2]);
+void generate_occupancies(uint64_t mask, uint64_t *occupancies);
+uint64_t generate_attacks(int square, uint64_t blockers, const int dirs[4][2]);
+
 #define LSB(x) __builtin_ctzll(x) // Least Significant Bit
 #define POP_LSB(x) (x &= x - 1) // Pop the Least Significant Bit
 #define COUNT_BITS(x) __builtin_popcountll(x) // Count the number of bits set to 1
@@ -59,6 +63,9 @@ uint64_t get_queen_attack(int square, uint64_t blockers);
 
 #define MAX_ATTEMPTS 10000000000 // maximum number of attempts to find a magic number
 
-
-
+uint32_t magic_index(MagicEntry *entry, uint64_t blockers);
+uint64_t generate_attacks(int square, uint64_t blockers, const int dirs[4][2]);
+uint64_t mask_sliding(int square, const int dirs[4][2]);
+void generate_occupancies(uint64_t mask, uint64_t *occupancies);
+uint64_t generate_rook_attacks(int square, uint64_t blockers);
 #endif // __MAGIC_BITBOARDS_H__

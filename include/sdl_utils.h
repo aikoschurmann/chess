@@ -4,6 +4,7 @@
 #include <SDL.h>
 #include <stdio.h>
 
+
 // Initializes SDL, creates a window and a renderer
 int init_SDL(SDL_Window **window, SDL_Renderer **renderer, const char *title, int width, int height);
 

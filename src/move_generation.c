@@ -1,59 +1,90 @@
 #include "move_generation.h"
-#include "stdio.h"
-
-int is_attacked(ChessBoard *board, ChessColor color, int tile) {
-    if (tile < 0 || tile > 63) {
-        return 0; // Invalid tile
-    }
-    ChessMove moves[256];
-    int num_moves = 0;
-    ChessBoard copy = *board;
-    copy.current_turn = !color;
-    generate_moves(&copy, moves, &num_moves);
-    //printf("Number of moves: %d\n", num_moves);
-    Bitboard attacked_tiles = 0x0000000000000000;
-    generate_bitboard_from_moves(moves, num_moves, &attacked_tiles);
-    // Check if the tile is attacked by the opposing color
-    return (attacked_tiles & (1ULL << tile)) != 0;
-    //return 0;
-
-}
-
+#include "move_gen_optimized.h"
+#include "move_apply_optimized.h"
+#include "magic_attacks.h"
+#include "magic_bitboards.h"
+#include "bitboard.h"
 #include <stdio.h>
+#include <string.h>
 
+// Simple attack detection using magic bitboards
+// File-mask constants (place near top of file)
+static const Bitboard FILE_A = 0x0101010101010101ULL;
+static const Bitboard FILE_H = 0x8080808080808080ULL;
 
-void print_board(ChessBoard *board) {
-    const char *unicode_pieces[2][6] = {
-        {"♟", "♞", "♝", "♜", "♛", "♚"},
-        {"♙", "♘", "♗", "♖", "♕", "♔"} // White: P, N, B, R, Q, K
-    
-    };
+// --- is_square_attacked_by ---
+// Returns 1 if the square is attacked by color `by`, 0 otherwise.
+int is_square_attacked_by(ChessBoard *board, int square, ChessColor by) {
+    if (square < 0 || square > 63) return 0;
+    Bitboard occ = board->combined[WHITE] | board->combined[BLACK];
+    Bitboard bb = 1ULL << square;
 
-    printf("  +---+---+---+---+---+---+---+---+\n");
-    for (int rank = 7; rank >= 0; rank--) {
-        printf("%d |", rank + 1);
-        for (int file = 0; file < 8; file++) {
-            int tile = rank * 8 + file;
-            const char *piece = " ";
-            for (int color = 0; color < 2; color++) {
-                for (int type = 0; type < 6; type++) {
-                    if (board->pieces[color][type] & (1ULL << tile)) {
-                        piece = unicode_pieces[color][type];
-                        goto found_piece;
-                    }
-                }
-            }
-        found_piece:
-            printf(" %s |", piece);
-        }
-        printf("\n  +---+---+---+---+---+---+---+---+\n");
+    // Pawns
+    if (by == WHITE) {
+        // white pawns attack to (p+7) and (p+9), so to see if any white pawn attacks 'square'
+        // build white pawn attack bitboard and test membership of 'square'
+        Bitboard white_pawns = board->pieces[WHITE][PAWN];
+        Bitboard attacks_from_white = 0;
+        // pawns << 7 attacks (avoid wrapping from file H)
+        attacks_from_white |= (white_pawns << 7) & ~FILE_H;
+        // pawns << 9 attacks (avoid wrapping from file A)
+        attacks_from_white |= (white_pawns << 9) & ~FILE_A;
+        if (attacks_from_white & bb) return 1;
+    } else {
+        // black pawns attack to (p-7) and (p-9) -> use >> shifts
+        Bitboard black_pawns = board->pieces[BLACK][PAWN];
+        Bitboard attacks_from_black = 0;
+        attacks_from_black |= (black_pawns >> 7) & ~FILE_A;
+        attacks_from_black |= (black_pawns >> 9) & ~FILE_H;
+        if (attacks_from_black & bb) return 1;
     }
 
-    printf("    a   b   c   d   e   f   g   h\n");
-    printf("Current turn: %s\n", board->current_turn == WHITE ? "White" : "Black");
+    // Knights
+    if (movegen_knight_attacks(square) & board->pieces[by][KNIGHT]) return 1;
+
+    // Bishops & Queens (diagonal sliders)
+    Bitboard diag_attackers = get_bishop_attack(square, occ) & (board->pieces[by][BISHOP] | board->pieces[by][QUEEN]);
+    if (diag_attackers) return 1;
+
+    // Rooks & Queens (orthogonal sliders)
+    Bitboard orth_attackers = get_rook_attack(square, occ) & (board->pieces[by][ROOK] | board->pieces[by][QUEEN]);
+    if (orth_attackers) return 1;
+
+    // King (adjacent)
+    if (movegen_king_attacks(square) & board->pieces[by][KING]) return 1;
+
+    return 0;
 }
 
+// Main move generation function - now uses optimized system
+void generate_moves(ChessBoard *board, ChessMove *moves, int *num_moves) {
+    *num_moves = generate_moves_optimized(board, moves, MOVEGEN_ALL);
+}
 
+// Fast move generation (same as main function now)
+void generate_moves_fast(ChessBoard *board, ChessMove *moves, int *num_moves) {
+    *num_moves = generate_moves_optimized(board, moves, MOVEGEN_ALL);
+}
+
+// Capture-only move generation for quiescence search
+void generate_captures_only(ChessBoard *board, ChessMove *moves, int *num_moves) {
+    *num_moves = generate_moves_optimized(board, moves, MOVEGEN_CAPTURES);
+}
+
+// Legacy move generation (kept for backwards compatibility if needed)
+void generate_moves_legacy(ChessBoard *board, ChessMove *moves, int *num_moves) {
+    // For now, just use the optimized version
+    // Can be replaced with old implementation if specific compatibility is needed
+    *num_moves = generate_moves_optimized(board, moves, MOVEGEN_ALL);
+}
+
+// Simple move application wrapper for GUI (no undo info needed)
+void apply_move_simple(ChessBoard *board, const ChessMove *move) {
+    UndoInfo undo; // We don't use this in GUI, but function requires it
+    apply_move_fast(board, move, &undo);
+}
+
+// Helper function to create moves (kept for compatibility)
 ChessMove generate_move(int start_tile, int end_tile, Piece piece_type, Piece promotion, MoveType move_type) {
     ChessMove move;
     move.start_tile = start_tile;
@@ -62,306 +93,143 @@ ChessMove generate_move(int start_tile, int end_tile, Piece piece_type, Piece pr
     move.promotion = promotion;
     move.is_castling = 0;
     move.rook_location = -1;
+    move.rook_end_location = -1;
     move.move_type = move_type;
     return move;
 }
 
-void generate_pawn_moves(ChessBoard *board, ChessMove *moves, int *num_moves, Piece piece_type) {
-    Bitboard pieces = board->pieces[board->current_turn][piece_type];
-    ChessColor opposing_color = board->current_turn == WHITE ? BLACK : WHITE;
-    Bitboard opposing_pieces = board->combined[opposing_color];
-    Bitboard occupied = board->combined[WHITE] | board->combined[BLACK];
-
-    int direction = board->current_turn == WHITE ? 8 : -8;
-    Bitboard starting_rank = board->current_turn == WHITE ? 0x000000000000FF00ULL : 0x00FF000000000000ULL;
-    Bitboard promotion_rank = board->current_turn == WHITE ? 0xFF00000000000000ULL : 0x00000000000000FFULL;
-
-    while (pieces) {
-        int index = __builtin_ctzll(pieces);
-        pieces &= pieces - 1;  // Remove lowest set bit
-
-        int forward_tile = index + direction;
-        Bitboard forward_mask = 1ULL << forward_tile;
-
-        // Single push and double push
-        if (!(occupied & forward_mask)) {
-            // Promotion
-            if (forward_mask & promotion_rank) {
-                moves[(*num_moves)++] = generate_move(index, forward_tile, PAWN, QUEEN, MOVE_PROMOTION);
-                moves[(*num_moves)++] = generate_move(index, forward_tile, PAWN, ROOK, MOVE_PROMOTION);
-                moves[(*num_moves)++] = generate_move(index, forward_tile, PAWN, BISHOP, MOVE_PROMOTION);
-                moves[(*num_moves)++] = generate_move(index, forward_tile, PAWN, KNIGHT, MOVE_PROMOTION);
-            } else {
-                // Add single push (no promotion)
-                moves[(*num_moves)++] = generate_move(index, forward_tile, PAWN, PAWN, MOVE_NORMAL);
-                if ((starting_rank & (1ULL << index)) && !(occupied & (1ULL << (forward_tile + direction)))) {
-
-                    moves[(*num_moves)++] = generate_move(index, forward_tile + direction, PAWN, NO_PROMOTION, MOVE_DOUBLE_PUSH);
-                }
-            }
-        }
-
-        // Diagonal capture and En passant
-        for (int offset = -1; offset <= 1; offset += 2) {
-            int diagonal_tile = forward_tile + offset;
-            if ((index & 7) != (offset == -1 ? 0 : 7)) {  // Check for A-file or H-file
-                if (opposing_pieces & (1ULL << diagonal_tile)) {
-                    moves[(*num_moves)++] = generate_move(index, diagonal_tile, PAWN, NO_PROMOTION, MOVE_NORMAL);
-                } else if (board->en_passant_tile == diagonal_tile) {
-                    moves[(*num_moves)++] = generate_move(index, diagonal_tile, PAWN, NO_PROMOTION, MOVE_EN_PASSANT);
-                }
-            }
-        }
-    }
-}
-
-void generate_sliding_moves(ChessBoard *board, ChessMove *moves, int *num_moves, Piece piece_type, int directions[4], unsigned long long masks[4][2]) {
-    Bitboard pieces = board->pieces[board->current_turn][piece_type];
-    ChessColor opposing_color = board->current_turn == WHITE ? BLACK : WHITE;
-    Bitboard opposing_pieces = board->combined[opposing_color];
-    Bitboard friendly_pieces = board->combined[board->current_turn];
-
-    while (pieces) {
-        int index = __builtin_ctzll(pieces);
-        pieces &= pieces - 1;  // Remove the lowest set bit
-
-        for (int i = 0; i < 4; i++) {
-            int direction = directions[i];
-            int current_tile = index;
-            unsigned long long current_mask = 1ULL << current_tile;
-            unsigned long long mask1 = masks[i][0];
-            unsigned long long mask2 = masks[i][1];
-
-            while (current_tile >= 0 && current_tile < 64) {
-                if (current_mask & mask1 || current_mask & mask2) {
-                    break;
-                }
-
-                current_mask = direction < 0 ? current_mask >> -direction : current_mask << direction;
-                current_tile += direction;
-
-                if (friendly_pieces & current_mask) {
-                    break;
-                }
-
-                if (opposing_pieces & current_mask) {
-                    // Capture and break
-                    moves[(*num_moves)++] = generate_move(index, current_tile, piece_type, NO_PROMOTION, MOVE_NORMAL);
-                    break;
-                }
-                // Otherwise, add continue sliding
-                moves[(*num_moves)++] = generate_move(index, current_tile, piece_type, NO_PROMOTION, MOVE_NORMAL);
-            }
-        }   
-    }
-}
-
-void generate_bishop_moves(ChessBoard *board, ChessMove *moves, int *num_moves, Piece piece_type) {
-    int directions[4] = {7, 9, -7, -9};
-    unsigned long long masks[4][2] = {
-        {0x0101010101010101, 0xFF00000000000000}, // left and top
-        {0x8080808080808080, 0xFF00000000000000}, // right and top
-        {0x8080808080808080, 0x00000000000000FF}, // right and bottom
-        {0x0101010101010101, 0x00000000000000FF}  // left and bottom
-    };
-    generate_sliding_moves(board, moves, num_moves, piece_type, directions, masks);
-}
-
-void generate_rook_moves(ChessBoard *board, ChessMove *moves, int *num_moves, Piece piece_type) {
-    int directions[4] = {8, -8, 1, -1};
-    unsigned long long masks[4][2] = {
-        {0xFF00000000000000, 0xFF00000000000000},
-        {0x00000000000000FF, 0x00000000000000FF},
-        {0x8080808080808080, 0x8080808080808080},
-        {0x0101010101010101, 0x0101010101010101}
-    };
-    generate_sliding_moves(board, moves, num_moves, piece_type, directions, masks);
-}
-
-void generate_queen_moves(ChessBoard *board, ChessMove *moves, int *num_moves, Piece piece_type) {
-    generate_bishop_moves(board, moves, num_moves, piece_type);
-    generate_rook_moves(board, moves, num_moves, piece_type);
-}
-
-void generate_knight_moves(ChessBoard *board, ChessMove *moves, int *num_moves, Piece piece_type) {
-    Bitboard pieces = board->pieces[board->current_turn][piece_type];
-    ChessColor opposing_color = board->current_turn == WHITE ? BLACK : WHITE;
-    Bitboard opposing_pieces = board->combined[opposing_color];
-    Bitboard friendly_pieces = board->combined[board->current_turn];
-
-    int offsets[8] = {6, 10, 15, 17, -6, -10, -15, -17};
-    unsigned long long masks[8][2] = {
-        {0x0303030303030303, 0xFF00000000000000},
-        {0xC0C0C0C0C0C0C0C0, 0xFF00000000000000},
-        {0x0101010101010101, 0xFFFF000000000000},
-        {0x8080808080808080, 0xFFFF000000000000},
-        {0xC0C0C0C0C0C0C0C0, 0x00000000000000FF},
-        {0x0303030303030303, 0x00000000000000FF},
-        {0x8080808080808080, 0x000000000000FFFF},
-        {0x0101010101010101, 0x000000000000FFFF}
-    };
-
-    while (pieces) {
-        int index = __builtin_ctzll(pieces);
-        pieces &= pieces - 1;  // Remove the lowest set bit
-
-        for (int i = 0; i < 8; i++) {
-            int offset = offsets[i];
-            int current_tile = index;
-            unsigned long long current_mask = 1ULL << current_tile;
-            unsigned long long mask1 = masks[i][0];
-            unsigned long long mask2 = masks[i][1];
-
-            if (current_mask & mask1 || current_mask & mask2) {
-                continue;
-            }
-
-            current_mask = offset < 0 ? current_mask >> -offset : current_mask << offset;
-            current_tile += offset;
-
-            if (friendly_pieces & current_mask) {
-                continue;
-            }
-
-            moves[(*num_moves)++] = generate_move(index, current_tile, piece_type, NO_PROMOTION, MOVE_NORMAL);
-        }
-    }
-}
-
-void generate_king_moves(ChessBoard *board, ChessMove *moves, int *num_moves, Piece piece_type) {
-    Bitboard pieces = board->pieces[board->current_turn][piece_type];
-    ChessColor opposing_color = board->current_turn == WHITE ? BLACK : WHITE;
-    Bitboard opposing_pieces = board->combined[opposing_color];
-    Bitboard friendly_pieces = board->combined[board->current_turn];
-    Bitboard occupied = board->combined[WHITE] | board->combined[BLACK];
-
-    int offsets[8] = {8, -8, 1, -1, 7, 9, -7, -9};
-    unsigned long long masks[8] = {
-        0xFF00000000000000,  // top rank
-        0x00000000000000FF,  // bottom rank
-        0x8080808080808080,  // right file
-        0x0101010101010101,  // left file
-        0XFF01010101010101,  // top and left
-        0xFF80808080808080,  // top and right
-        0x80000000000000FF,  // bottom and right
-        0x01010101010101FF   // bottom and left
-    };
-
-    unsigned long long kingside_masks[2];
-    kingside_masks[WHITE] = 0x0000000000000060;
-    kingside_masks[BLACK] = 0x6000000000000000;
-
-    unsigned long long queenside_masks[2];
-    queenside_masks[WHITE] = 0x000000000000000E;
-    queenside_masks[BLACK] = 0x0E00000000000000;
-
-    while (pieces) {
-        int index = __builtin_ctzll(pieces);
-        pieces &= pieces - 1;  // Remove the lowest set bit
-
-        for (int i = 0; i < 8; i++) {
-            int offset = offsets[i];
-            int current_tile = index;
-            unsigned long long current_mask = 1ULL << current_tile;
-            unsigned long long mask = masks[i];
-
-            if (current_mask & mask) {
-                continue;
-            }
-
-            current_mask = offset < 0 ? current_mask >> -offset : current_mask << offset;
-            current_tile += offset;
-
-            if (friendly_pieces & current_mask) {
-                continue;
-            }
-        
-            moves[(*num_moves)++] = generate_move(index, current_tile, piece_type, NO_PROMOTION, MOVE_NORMAL);
-        }
-
-
-        // Kingside castling (O-O)
-        if (can_castle(&board->castling_rights, board->current_turn == WHITE ? WHITE_KINGSIDE : BLACK_KINGSIDE)) {
-            // Determine starting king position
-            int king_start = (board->current_turn == WHITE) ? 4 : 60;  // E1 for white, E8 for black
-            int king_dest = king_start + 2;  // Move to G1 or G8
-            int squares[] = {king_start + 1};  // F1, G1 (or F8, G8)
-
-
-            if (!(occupied & kingside_masks[board->current_turn]) &&
-                !(board, board->current_turn, king_start) &&
-                !is_attacked(board, board->current_turn, squares[0]) &&
-                !is_attacked(board, board->current_turn, king_dest)) {
-                ChessMove move = generate_move(king_start, king_dest, piece_type, NO_PROMOTION, MOVE_CASTLING);
-                move.is_castling = 1;
-                move.rook_location = king_start + 3;
-                move.rook_end_location = king_start + 1;
-                moves[(*num_moves)++] = move;
-            }
-        }
-
-        // Queenside castling (O-O-O)
-        if (can_castle(&board->castling_rights, board->current_turn == WHITE ? WHITE_QUEENSIDE : BLACK_QUEENSIDE)) {
-            int king_start = (board->current_turn == WHITE) ? 4 : 60; 
-            int king_dest = king_start - 3;  // Move to C1 or C8
-            int squares[] = {king_start - 1, king_start - 2}; 
-
-            if (!(occupied & queenside_masks[board->current_turn]) &&
-                !is_attacked(board, board->current_turn, king_start) &&
-                !is_attacked(board, board->current_turn, squares[0]) &&
-                !is_attacked(board, board->current_turn, squares[1]) &&
-                !is_attacked(board, board->current_turn, king_dest)) {
-                ChessMove move = generate_move(king_start, king_dest, piece_type, NO_PROMOTION, MOVE_CASTLING);
-                move.is_castling = 1;
-                move.rook_location = king_start - 4;
-                move.rook_end_location = king_start - 2;
-                moves[(*num_moves)++] = move;
-            }
-        }
-    }
-}
-
-
-void generate_moves(ChessBoard *board, ChessMove *moves, int *num_moves) {
-    *num_moves = 0;
-    generate_pawn_moves(board, moves, num_moves, PAWN);
-    generate_bishop_moves(board, moves, num_moves, BISHOP);
-    generate_rook_moves(board, moves, num_moves, ROOK);
-    generate_queen_moves(board, moves, num_moves, QUEEN);
-    generate_knight_moves(board, moves, num_moves, KNIGHT);
-    generate_king_moves(board, moves, num_moves, KING);
-}
+#define NUM_PIECE_TYPES 6
 
 void verify_king_safety(ChessBoard *board, ChessMove *moves, int *num_moves) {
-    static ChessMove verified_moves[500];
-    int num_verified_moves = 0;
-    ChessColor moving_side = board->current_turn;
+    static ChessMove verified_moves[512];
+    int verified_count = 0;
 
-    for (int i = 0; i < *num_moves; i++) {
-        ChessBoard copy = *board;
-        apply_move(&copy, &moves[i]);
+    ChessColor us = board->current_turn;
+    ChessColor opponent = (us == WHITE) ? BLACK : WHITE;
 
-        if (copy.pieces[moving_side][KING] == 0) {
-            fprintf(stderr, "BUG: King disappeared after move\n");
-            printf("pre-move:\n");
-            print_board(board);
-            printf("post-move:\n");
-            print_board(&copy);
-            continue;
+    // original king square (fast path for non-king moves)
+    Bitboard orig_king_bb = board->pieces[us][KING];
+    if (!orig_king_bb) { // defensive: no king (shouldn't happen)
+        *num_moves = 0;
+        return;
+    }
+    int orig_king_sq = __builtin_ctzll(orig_king_bb);
+
+    int n = *num_moves;
+    for (int i = 0; i < n; ++i) {
+        ChessMove *m = &moves[i];
+
+        // Fast determine where the king will be after the move
+        int king_sq_after = (m->piece_type == KING) ? m->end_tile : orig_king_sq;
+        if (king_sq_after < 0) continue; // defensive
+
+        // Save minimal state that can change.
+        // Save both color piece arrays (6 bitboards each) and combined bitboards,
+        // plus en_passant and castling_rights bytes.
+        #define NUM_PIECE_TYPES 6
+        Bitboard saved_us[NUM_PIECE_TYPES];
+        Bitboard saved_them[NUM_PIECE_TYPES];
+        Bitboard saved_comb_us = board->combined[us];
+        Bitboard saved_comb_them = board->combined[opponent];
+        int saved_en_passant = board->en_passant_tile;
+
+        unsigned char saved_castling_bytes[32];
+        size_t castling_size = sizeof(board->castling_rights);
+        if (castling_size > sizeof(saved_castling_bytes)) castling_size = sizeof(saved_castling_bytes);
+        memcpy(saved_castling_bytes, &board->castling_rights, castling_size);
+
+        for (int p = 0; p < NUM_PIECE_TYPES; ++p) {
+            saved_us[p] = board->pieces[us][p];
+            saved_them[p] = board->pieces[opponent][p];
         }
-        int king_tile = __builtin_ctzll(copy.pieces[moving_side][KING]);
-        
-        if (!is_attacked(&copy, moving_side, king_tile)) {
-            verified_moves[num_verified_moves++] = moves[i];
+
+        // Apply move incrementally (piece bitboards + combined + en_passant)
+        Bitboard from_bb = 1ULL << m->start_tile;
+        Bitboard to_bb   = 1ULL << m->end_tile;
+
+        // Remove moving piece from origin
+        board->pieces[us][m->piece_type] &= ~from_bb;
+        board->combined[us] &= ~from_bb;
+
+        // Handle captures (including en-passant)
+        int captured_square = -1;
+        int captured_piece_type = -1;
+
+        if (m->move_type == MOVE_EN_PASSANT) {
+            int cap_sq = (us == WHITE) ? (m->end_tile - 8) : (m->end_tile + 8);
+            Bitboard cap_bb = 1ULL << cap_sq;
+            board->pieces[opponent][PAWN] &= ~cap_bb;
+            board->combined[opponent] &= ~cap_bb;
+            captured_square = cap_sq;
+            captured_piece_type = PAWN;
+        } else {
+            if (board->combined[opponent] & to_bb) {
+                for (int p = 0; p < NUM_PIECE_TYPES; ++p) {
+                    if (board->pieces[opponent][p] & to_bb) {
+                        board->pieces[opponent][p] &= ~to_bb;
+                        board->combined[opponent] &= ~to_bb;
+                        captured_square = m->end_tile;
+                        captured_piece_type = p;
+                        break;
+                    }
+                }
+            }
         }
+
+        // Place moving piece at destination (promotions handled)
+        if (m->promotion != NO_PROMOTION) {
+            board->pieces[us][m->promotion] |= to_bb;
+            board->combined[us] |= to_bb;
+        } else {
+            board->pieces[us][m->piece_type] |= to_bb;
+            board->combined[us] |= to_bb;
+        }
+
+        // Handle castling rook move if present
+        if (m->is_castling) {
+            Bitboard rook_from_bb = 1ULL << m->rook_location;
+            Bitboard rook_to_bb   = 1ULL << m->rook_end_location;
+            board->pieces[us][ROOK] &= ~rook_from_bb;
+            board->pieces[us][ROOK] |= rook_to_bb;
+            board->combined[us] &= ~rook_from_bb;
+            board->combined[us] |= rook_to_bb;
+        }
+
+        // Update en_passant for double pawn pushes, otherwise clear
+        board->en_passant_tile = -1;
+        if (m->move_type == MOVE_DOUBLE_PUSH) {
+            if (us == WHITE) board->en_passant_tile = m->start_tile + 8;
+            else              board->en_passant_tile = m->start_tile - 8;
+        }
+
+        // Note: we DO NOT mutate castling_rights here. That avoids heuristic ifdefs.
+        // The saved_castling_bytes will be restored below (no change during the test).
+
+        // Flip turn so is_square_attacked_by sees correct attacker side
+        board->current_turn = opponent;
+
+        // Now test king safety using the canonical attacker test
+        int king_safe = !is_square_attacked_by(board, king_sq_after, opponent);
+
+        // Restore everything we changed
+        for (int p = 0; p < NUM_PIECE_TYPES; ++p) {
+            board->pieces[us][p] = saved_us[p];
+            board->pieces[opponent][p] = saved_them[p];
+        }
+        board->combined[us] = saved_comb_us;
+        board->combined[opponent] = saved_comb_them;
+        board->en_passant_tile = saved_en_passant;
+        memcpy(&board->castling_rights, saved_castling_bytes, castling_size);
+        board->current_turn = us;
+
+        if (king_safe) {
+            verified_moves[verified_count++] = *m;
+        }
+
+        #undef NUM_PIECE_TYPES
     }
 
-    if (*num_moves > 100){
-        printf("Number of moves: %d\n", *num_moves);
-    }
-
-    for (int i = 0; i < num_verified_moves; i++) {
-        moves[i] = verified_moves[i];
-    }
-    *num_moves = num_verified_moves;
+    // Copy verified moves back
+    for (int i = 0; i < verified_count; ++i) moves[i] = verified_moves[i];
+    *num_moves = verified_count;
 }
