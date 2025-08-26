@@ -270,12 +270,27 @@ void draw_ui_panel(GameUIState *ui_state) {
 
     // Move History header
     draw_text("Move History", panel_x + xpad, ctrl_y, 200, 200, 200, main_font);
-    ctrl_y += 22;
+    // Give a bit more vertical space so small header widgets don't overlap
+    ctrl_y += 28;
 
     // Move history container
     int mh_x = panel_x + xpad;
     int mh_w = panel_w - xpad * 2;
     int mh_h = panel_h - ctrl_y - 24;
+    // Draw follow-mode indicator in header area (top-right)
+    int box_size = 14;
+    int follow_x = mh_x + mh_w - xpad - box_size;
+    int follow_y = ctrl_y - 26; // sit slightly above the container
+    // subtle background for checkbox
+    set_color(40, 42, 46, 180);
+    draw_filled_rectangle(follow_x, follow_y, box_size, box_size);
+    // lighter border
+    set_color(110, 110, 110, 180);
+    draw_rectangle(follow_x, follow_y, box_size, box_size);
+    // Draw a subtle marker to indicate default auto-follow behavior (no toggle)
+    set_color(110, 110, 110, 120);
+    draw_rectangle(follow_x, follow_y, box_size, box_size);
+    draw_text("Auto", follow_x - 46, follow_y, 120, 120, 120, main_font);
     // container background
     set_color(24, 26, 30, 200);
     draw_filled_rectangle(mh_x, ctrl_y, mh_w, mh_h);
@@ -296,20 +311,30 @@ void draw_ui_panel(GameUIState *ui_state) {
 
     // Compute which rows to show with scroll support
     int total_rows = (ui_state->actual_move_count + 1) / 2; // each row = a full move (white+black)
+
+    // Maximum scroll offset that still leaves rows_can_show visible
+    int max_offset = total_rows - rows_can_show;
+    if (max_offset < 0) max_offset = 0;
+
     int start_row = ui_state->move_history_scroll_offset;
-    
-    // Auto-scroll to show latest moves if viewing current position
+
+    // Auto-scroll to latest only when viewing current position AND the user
+    // hasn't manually scrolled away from the bottom. This allows manual
+    // scrolling while still keeping the automatic "follow" behavior when
+    // the view was already at the end.
     if (ui_state->viewing_move_index == -1) {
-        start_row = total_rows - rows_can_show;
-        if (start_row < 0) start_row = 0;
-        ui_state->move_history_scroll_offset = start_row;
+        if (ui_state->move_history_scroll_offset >= max_offset) {
+            start_row = max_offset;
+            ui_state->move_history_scroll_offset = start_row;
+        } else {
+            // Keep user's manually adjusted offset; don't force to end.
+            start_row = ui_state->move_history_scroll_offset;
+        }
     }
-    
-    // Clamp scroll offset
+
+    // Clamp scroll offset (safety)
     if (start_row < 0) start_row = 0;
-    if (start_row > total_rows - rows_can_show && total_rows > rows_can_show) {
-        start_row = total_rows - rows_can_show;
-    }
+    if (start_row > max_offset) start_row = max_offset;
 
     // Column geometry: Move# | White | Black
     int col_num_w = 34;
@@ -525,7 +550,7 @@ int handle_move_history_click(int mouse_x, int mouse_y, GameUIState *ui_state) {
     ctrl_y += 20;  // First line of controls
     ctrl_y += 24;  // Second line of controls + spacing
     ctrl_y += 40 + 20;  // Settings badge height + spacing
-    ctrl_y += 22;  // "Move History" text
+    ctrl_y += 28;  // "Move History" text + extra spacing (match draw_ui_panel)
     
     // Move history container bounds (same as draw_ui_panel)
     int mh_x = panel_x + xpad;
@@ -537,6 +562,12 @@ int handle_move_history_click(int mouse_x, int mouse_y, GameUIState *ui_state) {
         mouse_y < ctrl_y || mouse_y > ctrl_y + mh_h) {
         return 0;
     }
+
+    // Detect click on follow checkbox (top-right of panel header)
+    int box_size = 14;
+    int follow_x = mh_x + mh_w - xpad - box_size;
+    int follow_y = ctrl_y - 26;
+    // clicking the small marker doesn't toggle behavior — ignore clicks here
     
     // If no moves yet, return early
     if (ui_state->actual_move_count == 0) {
@@ -577,8 +608,10 @@ int handle_move_history_click(int mouse_x, int mouse_y, GameUIState *ui_state) {
     
     // Only navigate if the move exists
     if (move_index >= 0 && move_index < ui_state->actual_move_count) {
-        navigate_to_move(ui_state, move_index);
-        return 1;
+    navigate_to_move(ui_state, move_index);
+    // If the user clicked into history manually, disable follow mode
+        // ui_state->follow_mode = 0; // Removed as follow_mode no longer exists
+    return 1;
     }
     
     return 0;
@@ -637,8 +670,13 @@ int calculate_visible_rows(void) {
     int header_h = 72;
     int xpad = 16;
     
-    // Calculate move history panel height
-    int ctrl_y = header_h + 16 + 22 + 20 + 24 + 40 + 20 + 22; // Same as draw_ui_panel
+    // Calculate move history panel height (match draw_ui_panel spacing)
+    int ctrl_y = header_h + 16;
+    ctrl_y += 22;  // "Controls"
+    ctrl_y += 20;  // first control line
+    ctrl_y += 24;  // second control line
+    ctrl_y += 40 + 20; // badge
+    ctrl_y += 28; // move history header spacing
     int mh_h = panel_h - ctrl_y - 24;
     int inner_h = mh_h - 20;
     int row_h = 32;
@@ -763,6 +801,7 @@ void handle_move_history_keyboard(GameUIState *ui_state, int key) {
 void scroll_move_history(GameUIState *ui_state, int direction) {
     int total_rows = (ui_state->actual_move_count + 1) / 2;
     int max_visible_rows = calculate_visible_rows();
+    // Manual scroll does not toggle any UI flag (keep user's offset unchanged)
     
     if (direction < 0) {
         // Scroll up

@@ -77,6 +77,9 @@ void highlight_last_move(GameUIState *ui_state);
 void highlight_selected_square(GameUIState *ui_state);
 void update_game_ui_state(GameUIState *ui_state, ChessBoard *board, int num_moves, int selected_tile);
 
+// Utility
+int calculate_visible_rows(void);
+
 // Move history navigation
 int handle_move_history_click(int mouse_x, int mouse_y, GameUIState *ui_state);
 void navigate_to_move(GameUIState *ui_state, int move_index);

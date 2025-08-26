@@ -357,6 +357,15 @@ static int try_make_move(ChessBoard *board, ChessMove *moves, int num_moves,
             // Update UI state with move information
             ui_state->last_move_from = from_tile;
             ui_state->last_move_to = to_tile;
+
+            // Determine whether the move history view was already at the bottom.
+            // If so, we'll auto-follow new moves; otherwise preserve user's offset.
+            int rows_can_show = calculate_visible_rows();
+            int total_rows_before = (ui_state->actual_move_count + 1) / 2;
+            int max_offset_before = total_rows_before - rows_can_show;
+            if (max_offset_before < 0) max_offset_before = 0;
+            int was_at_bottom = (ui_state->move_history_scroll_offset >= max_offset_before);
+
             ui_state->actual_move_count++;
             ui_state->move_count = ui_state->actual_move_count;
             ui_state->viewing_move_index = -1;  // Reset to current position
@@ -381,6 +390,17 @@ static int try_make_move(ChessBoard *board, ChessMove *moves, int num_moves,
                 if (ui_state->move_history[ui_state->actual_move_count - 1]) {
                     strcpy(ui_state->move_history[ui_state->actual_move_count - 1], move_str);
                 }
+            }
+
+            // If the user was already viewing the bottom, update the scroll
+            // offset to follow the newly added move. This keeps the UI in
+            // "follow" mode only when the user hasn't manually scrolled up.
+            if (was_at_bottom) {
+                int rows_can_show_new = calculate_visible_rows();
+                int total_rows_new = (ui_state->actual_move_count + 1) / 2;
+                int max_offset_new = total_rows_new - rows_can_show_new;
+                if (max_offset_new < 0) max_offset_new = 0;
+                ui_state->move_history_scroll_offset = max_offset_new;
             }
             
             return 1;  // Move successful
