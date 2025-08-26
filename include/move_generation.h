@@ -18,6 +18,7 @@ void apply_move_simple(ChessBoard *board, const ChessMove *move);
 
 // Utility functions
 void verify_king_safety(ChessBoard *board, ChessMove *moves, int *num_moves);
+int is_square_attacked_by(ChessBoard *board, int square, ChessColor by);
 void print_board(ChessBoard *board);
 
 #endif // __MOVE_GENERATION_H__

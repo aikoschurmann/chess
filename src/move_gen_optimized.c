@@ -1,5 +1,14 @@
 #include "move_gen_optimized.h"
+#include "move_generation.h"
 #include <string.h>
+
+// Helper function to create moves
+static inline ChessMove create_move(int from, int to, Piece piece, Piece promotion, MoveType move_type);
+
+// Forward declarations for castling helpers
+static int generate_castling_moves(MoveGenContext *ctx, ChessMove *moves);
+static int is_castling_path_clear_and_safe(MoveGenContext *ctx, int king_from, int king_to, 
+                                          int rook_to, int rook_from, int check_square);
 
 // Helper function to create moves
 static inline ChessMove create_move(int from, int to, Piece piece, Piece promotion, MoveType move_type) {
@@ -366,68 +375,119 @@ int movegen_queen_moves(MoveGenContext *ctx, ChessMove *moves, MoveGenStage stag
 int movegen_king_moves(MoveGenContext *ctx, ChessMove *moves, MoveGenStage stage) {
     int count = 0;
     int from = ctx->king_square;
-    
+
     if (from < 0 || from > 63) return 0; // defensive guard
-    
+
     Bitboard attacks = movegen_king_attacks(from) & ~ctx->our_pieces;
-    
+
+    // Regular king moves
     if (stage == MOVEGEN_CAPTURES || stage == MOVEGEN_ALL) {
         Bitboard captures = attacks & ctx->enemy_pieces;
         count += movegen_add_moves(moves + count, from, captures, KING, MOVE_NORMAL);
     }
-    
+
     if (stage == MOVEGEN_QUIET || stage == MOVEGEN_ALL) {
         Bitboard quiet = attacks & ~ctx->enemy_pieces;
         count += movegen_add_moves(moves + count, from, quiet, KING, MOVE_NORMAL);
+
+        // Castling moves (only in quiet moves)
+        count += generate_castling_moves(ctx, moves + count);
+    }
+
+    return count;
+}
+
+// Separate function for cleaner castling logic
+static int generate_castling_moves(MoveGenContext *ctx, ChessMove *moves) {
+    int count = 0;
+    ChessBoard *board = ctx->board;
+    ChessColor us = ctx->us;
+    ChessColor them = ctx->them;
+    int king_square = ctx->king_square;
+    
+    // King must not be in check to castle
+    if (is_square_attacked_by(board, king_square, them)) {
+        return 0;
+    }
+    
+    if (us == WHITE) {
+        // White kingside castling (e1-g1)
+        if (can_castle(&board->castling_rights, WHITE_KINGSIDE)) {
+            if (is_castling_path_clear_and_safe(ctx, 4, 6, 5, 7, 5)) {
+                ChessMove castle = create_move(4, 6, KING, NO_PROMOTION, MOVE_CASTLING);
+                castle.is_castling = 1;
+                castle.rook_location = 7;
+                castle.rook_end_location = 5;
+                moves[count++] = castle;
+            }
+        }
         
-        // Add castling moves
-        if (ctx->us == WHITE) {
-            // White kingside castling
-            if (can_castle(&ctx->board->castling_rights, WHITE_KINGSIDE)) {
-                if (!(ctx->all_pieces & 0x0000000000000060ULL)) { // f1 and g1 clear
-                    ChessMove castle = create_move(4, 6, KING, NO_PROMOTION, MOVE_CASTLING);
-                    castle.is_castling = 1;
-                    castle.rook_location = 7;
-                    castle.rook_end_location = 5;
-                    moves[count++] = castle;
-                }
+        // White queenside castling (e1-c1)
+        if (can_castle(&board->castling_rights, WHITE_QUEENSIDE)) {
+            if (is_castling_path_clear_and_safe(ctx, 4, 2, 3, 0, 3)) {
+                ChessMove castle = create_move(4, 2, KING, NO_PROMOTION, MOVE_CASTLING);
+                castle.is_castling = 1;
+                castle.rook_location = 0;
+                castle.rook_end_location = 3;
+                moves[count++] = castle;
             }
-            // White queenside castling
-            if (can_castle(&ctx->board->castling_rights, WHITE_QUEENSIDE)) {
-                if (!(ctx->all_pieces & 0x000000000000000EULL)) { // b1, c1, d1 clear
-                    ChessMove castle = create_move(4, 2, KING, NO_PROMOTION, MOVE_CASTLING);
-                    castle.is_castling = 1;
-                    castle.rook_location = 0;
-                    castle.rook_end_location = 3;
-                    moves[count++] = castle;
-                }
+        }
+    } else { // BLACK
+        // Black kingside castling (e8-g8)
+        if (can_castle(&board->castling_rights, BLACK_KINGSIDE)) {
+            if (is_castling_path_clear_and_safe(ctx, 60, 62, 61, 63, 61)) {
+                ChessMove castle = create_move(60, 62, KING, NO_PROMOTION, MOVE_CASTLING);
+                castle.is_castling = 1;
+                castle.rook_location = 63;
+                castle.rook_end_location = 61;
+                moves[count++] = castle;
             }
-        } else {
-            // Black kingside castling
-            if (can_castle(&ctx->board->castling_rights, BLACK_KINGSIDE)) {
-                if (!(ctx->all_pieces & 0x6000000000000000ULL)) { // f8 and g8 clear
-                    ChessMove castle = create_move(60, 62, KING, NO_PROMOTION, MOVE_CASTLING);
-                    castle.is_castling = 1;
-                    castle.rook_location = 63;
-                    castle.rook_end_location = 61;
-                    moves[count++] = castle;
-                }
-            }
-            // Black queenside castling
-            if (can_castle(&ctx->board->castling_rights, BLACK_QUEENSIDE)) {
-                if (!(ctx->all_pieces & 0x0E00000000000000ULL)) { // b8, c8, d8 clear
-                    ChessMove castle = create_move(60, 58, KING, NO_PROMOTION, MOVE_CASTLING);
-                    castle.is_castling = 1;
-                    castle.rook_location = 56;
-                    castle.rook_end_location = 59;
-                    moves[count++] = castle;
-                }
+        }
+        
+        // Black queenside castling (e8-c8)
+        if (can_castle(&board->castling_rights, BLACK_QUEENSIDE)) {
+            if (is_castling_path_clear_and_safe(ctx, 60, 58, 59, 56, 59)) {
+                ChessMove castle = create_move(60, 58, KING, NO_PROMOTION, MOVE_CASTLING);
+                castle.is_castling = 1;
+                castle.rook_location = 56;
+                castle.rook_end_location = 59;
+                moves[count++] = castle;
             }
         }
     }
     
     return count;
 }
+
+// Helper function to check if castling path is clear and safe
+static int is_castling_path_clear_and_safe(MoveGenContext *ctx, int king_from, int king_to, 
+                                          int rook_to, int rook_from, int check_square) {
+    ChessBoard *board = ctx->board;
+    ChessColor them = ctx->them;
+    
+    // Check if squares between king and rook are empty
+    int min_sq = (king_from < rook_from) ? king_from : rook_from;
+    int max_sq = (king_from > rook_from) ? king_from : rook_from;
+    
+    for (int sq = min_sq + 1; sq < max_sq; sq++) {
+        if (sq == rook_from) continue; // Skip the rook square itself
+        if (ctx->all_pieces & (1ULL << sq)) {
+            return 0; // Path blocked
+        }
+    }
+    
+    // Check that the king doesn't pass through or land on an attacked square
+    int step = (king_to > king_from) ? 1 : -1;
+    for (int sq = king_from + step; ; sq += step) {
+        if (is_square_attacked_by(board, sq, them)) {
+            return 0; // King passes through check
+        }
+        if (sq == king_to) break;
+    }
+    
+    return 1; // Castling is legal
+}
+
 
 // Main optimized move generation functions
 int movegen_generate_all(MoveGenContext *ctx, ChessMove *moves) {
