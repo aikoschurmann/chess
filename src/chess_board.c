@@ -167,3 +167,158 @@ void apply_move(ChessBoard *board, const ChessMove *move) {
     board->current_turn = !board->current_turn; // Switch turn
     board->last_move = *move; // Save the last move
 }
+
+#include <ctype.h>
+#include <string.h>
+#include <stdlib.h>
+
+/*
+ * Parse a FEN string into board.
+ * Returns 0 on success, -1 on failure (malformed FEN).
+ *
+ * Expected FEN fields used:
+ * 1) piece placement
+ * 2) active color (w/b)
+ * 3) castling availability (KQkq or -)
+ * 4) en-passant target square (e.g. e3 or -)
+ *
+ * Fields 5 and 6 (halfmove/fullmove) are ignored.
+ */
+int parse_fen(const char *fen, ChessBoard *board) {
+    if (!fen || !board) return -1;
+
+    // Clear piece bitboards
+    for (int c = 0; c < 2; ++c)
+        for (int p = 0; p < 6; ++p)
+            board->pieces[c][p] = 0ULL;
+
+    // piece placement
+    const char *p = fen;
+    int rank = 7; // start at rank 8 (index 7)
+    int file = 0; // file 0 = a
+
+    // parse placement until space
+    while (*p && *p != ' ') {
+        char ch = *p;
+        if (ch == '/') {
+            rank--;
+            file = 0;
+            if (rank < 0) return -1; // too many ranks
+        } else if (isdigit((unsigned char)ch)) {
+            int skip = ch - '0';
+            file += skip;
+            if (file > 8) return -1;
+        } else {
+            if (file >= 8 || rank < 0) return -1;
+            int color = (isupper((unsigned char)ch)) ? WHITE : BLACK;
+            char lower = (char)tolower((unsigned char)ch);
+            int piece;
+            switch (lower) {
+                case 'p': piece = PAWN;   break;
+                case 'n': piece = KNIGHT; break;
+                case 'b': piece = BISHOP; break;
+                case 'r': piece = ROOK;   break;
+                case 'q': piece = QUEEN;  break;
+                case 'k': piece = KING;   break;
+                default: return -1; // unknown piece letter
+            }
+            int sq = rank * 8 + file; // bit index: a1=0 .. h8=63
+            board->pieces[color][piece] |= (1ULL << sq);
+            file++;
+        }
+        p++;
+    }
+
+    if (rank != 0 || file > 8) {
+        // Not strictly required to be exactly rank==0 at end (some leniency),
+        // but this indicates a possibly malformed placement.
+        // We'll accept rank==0 or rank<0? If rank > 0 it's incomplete.
+        if (rank > 0) return -1;
+    }
+
+    // advance past space
+    if (!*p) return -1;
+    while (*p == ' ') p++;
+    if (!*p) return -1;
+
+    // active color
+    char active = *p;
+    if (active == 'w' || active == 'W') board->current_turn = WHITE;
+    else if (active == 'b' || active == 'B') board->current_turn = BLACK;
+    else return -1;
+    // move p to after color token
+    while (*p && *p != ' ') p++;
+    if (!*p) {
+        // It's allowed for FEN to end here but we expect further tokens (castling, en-passant)
+        // We'll set defaults and return success.
+        board->combined[WHITE] = generate_combined(board->pieces[WHITE]);
+        board->combined[BLACK] = generate_combined(board->pieces[BLACK]);
+        board->en_passant_tile = -1;
+        board->last_move.start_tile = -1;
+        board->last_move.end_tile = -1;
+        board->last_move.piece_type = PAWN;
+        board->last_move.promotion = PAWN;
+        init_castling_rights(&board->castling_rights); // default all allowed
+        return 0;
+    }
+
+    // castling availability
+    while (*p == ' ') p++;
+    if (!*p) return -1;
+    // read token until space
+    const char *start = p;
+    while (*p && *p != ' ') p++;
+    size_t len = p - start;
+    // reset rights to none and set present ones
+    board->castling_rights.rights = 0;
+    if (len == 1 && start[0] == '-') {
+        // no castling rights
+    } else {
+        for (size_t i = 0; i < len; ++i) {
+            char ccast = start[i];
+            if (ccast == 'K') board->castling_rights.rights |= WHITE_KINGSIDE;
+            else if (ccast == 'Q') board->castling_rights.rights |= WHITE_QUEENSIDE;
+            else if (ccast == 'k') board->castling_rights.rights |= BLACK_KINGSIDE;
+            else if (ccast == 'q') board->castling_rights.rights |= BLACK_QUEENSIDE;
+            else {
+                // ignore unexpected char (could return error but be lenient)
+            }
+        }
+    }
+
+    // en-passant target
+    while (*p == ' ') p++;
+    if (!*p) {
+        board->en_passant_tile = -1;
+    } else {
+        if (*p == '-') {
+            board->en_passant_tile = -1;
+        } else {
+            // expect file letter then rank digit, e.g. "e3"
+            if (!isalpha((unsigned char)p[0]) || !isdigit((unsigned char)p[1])) {
+                board->en_passant_tile = -1; // malformed; be permissive
+            } else {
+                char filec = tolower((unsigned char)p[0]);
+                char rankc = p[1];
+                if (filec < 'a' || filec > 'h' || rankc < '1' || rankc > '8') {
+                    board->en_passant_tile = -1;
+                } else {
+                    int f = filec - 'a';
+                    int r = rankc - '1'; // 0..7
+                    board->en_passant_tile = r * 8 + f;
+                }
+            }
+        }
+    }
+
+    // house-keeping: combined bitboards & last_move defaults
+    board->combined[WHITE] = generate_combined(board->pieces[WHITE]);
+    board->combined[BLACK] = generate_combined(board->pieces[BLACK]);
+
+    board->last_move.start_tile = -1;
+    board->last_move.end_tile = -1;
+    board->last_move.piece_type = PAWN;
+    board->last_move.promotion = PAWN;
+
+    return 0;
+}

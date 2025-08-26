@@ -51,21 +51,9 @@ uint64_t get_queen_attack(int square, uint64_t blockers);
 void initialize_magic_bitboards();
 void cleanup_magic_bitboards();
 
-// Helper functions for debugging/testing
-uint64_t mask_sliding(int square, const int dirs[4][2]);
-void generate_occupancies(uint64_t mask, uint64_t *occupancies);
-uint64_t generate_attacks(int square, uint64_t blockers, const int dirs[4][2]);
-
+// Utility macros
 #define LSB(x) __builtin_ctzll(x) // Least Significant Bit
 #define POP_LSB(x) (x &= x - 1) // Pop the Least Significant Bit
 #define COUNT_BITS(x) __builtin_popcountll(x) // Count the number of bits set to 1
-#define RANDOM_MAGIC() (uint64_t)(rand() % 0xFFFF) << 48 | (uint64_t)(rand() % 0xFFFF) << 32 | (uint64_t)(rand() % 0xFFFF) << 16 | (uint64_t)(rand() % 0xFFFF)
 
-#define MAX_ATTEMPTS 10000000000 // maximum number of attempts to find a magic number
-
-uint32_t magic_index(MagicEntry *entry, uint64_t blockers);
-uint64_t generate_attacks(int square, uint64_t blockers, const int dirs[4][2]);
-uint64_t mask_sliding(int square, const int dirs[4][2]);
-void generate_occupancies(uint64_t mask, uint64_t *occupancies);
-uint64_t generate_rook_attacks(int square, uint64_t blockers);
 #endif // __MAGIC_BITBOARDS_H__

@@ -9,7 +9,6 @@ ChessMove generate_move(int start_tile, int end_tile, Piece piece_type, Piece pr
 
 // Main move generation functions (all now use optimized system)
 void generate_moves(ChessBoard *board, ChessMove *moves, int *num_moves);
-void generate_moves_legacy(ChessBoard *board, ChessMove *moves, int *num_moves);
 void generate_moves_fast(ChessBoard *board, ChessMove *moves, int *num_moves);
 void generate_captures_only(ChessBoard *board, ChessMove *moves, int *num_moves);
 

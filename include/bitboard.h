@@ -18,6 +18,4 @@ static inline int is_set(Bitboard bb, int sq) {
     return (bb & (1ULL << sq)) != 0;
 }
 
-void print_bitboard(Bitboard bb);
-
 #endif // BITBOARD_H

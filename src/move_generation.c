@@ -71,13 +71,6 @@ void generate_captures_only(ChessBoard *board, ChessMove *moves, int *num_moves)
     *num_moves = generate_moves_optimized(board, moves, MOVEGEN_CAPTURES);
 }
 
-// Legacy move generation (kept for backwards compatibility if needed)
-void generate_moves_legacy(ChessBoard *board, ChessMove *moves, int *num_moves) {
-    // For now, just use the optimized version
-    // Can be replaced with old implementation if specific compatibility is needed
-    *num_moves = generate_moves_optimized(board, moves, MOVEGEN_ALL);
-}
-
 // Simple move application wrapper for GUI (no undo info needed)
 void apply_move_simple(ChessBoard *board, const ChessMove *move) {
     UndoInfo undo; // We don't use this in GUI, but function requires it

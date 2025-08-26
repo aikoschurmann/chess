@@ -41,4 +41,6 @@ void apply_promotion(ChessBoard *board, ChessMove *move);
 
 void apply_move(ChessBoard *board, const ChessMove *move);
 
+int parse_fen(const char *fen, ChessBoard *board);
+
 #endif // CHESS_BOARD_H

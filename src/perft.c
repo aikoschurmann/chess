@@ -4,9 +4,13 @@
 #define MAX_MOVES 256
 
 static uint64_t perft(const ChessBoard *board, int depth) {
+    if (depth == 0) {
+        return 1; // Leaf node
+    }
+    
     ChessMove moves[MAX_MOVES];
     int num_moves = 0;
-    generate_moves_legacy((ChessBoard*)board, moves, &num_moves);
+    generate_moves_fast((ChessBoard*)board, moves, &num_moves);
     verify_king_safety((ChessBoard*)board, moves, &num_moves);
 
     if (depth == 1) {
@@ -16,12 +20,17 @@ static uint64_t perft(const ChessBoard *board, int depth) {
     uint64_t total_nodes = 0;
     for (int i = 0; i < num_moves; i++) {
         ChessBoard temp_board = *board;
-        apply_move(&temp_board, &moves[i]);
+        apply_move_simple(&temp_board, &moves[i]);
         uint64_t nodes = perft(&temp_board, depth - 1);
         total_nodes += nodes;
     }
 
     return total_nodes;
+}
+
+// Public perft function for test suite
+uint64_t perft_public(const ChessBoard *board, int depth) {
+    return perft(board, depth);
 }
 
 static void format_move(const ChessMove *move, char *out, size_t size) {
@@ -46,7 +55,7 @@ static void format_move(const ChessMove *move, char *out, size_t size) {
 uint64_t perft_divide(const ChessBoard *board, int depth) {
     ChessMove moves[MAX_MOVES];
     int num_moves = 0;
-    generate_moves_legacy((ChessBoard*)board, moves, &num_moves);
+    generate_moves_fast((ChessBoard*)board, moves, &num_moves);
     verify_king_safety((ChessBoard*)board, moves, &num_moves);
 
     uint64_t total = 0;
@@ -55,7 +64,7 @@ uint64_t perft_divide(const ChessBoard *board, int depth) {
 
     for (int i = 0; i < num_moves; ++i) {
         ChessBoard copy = *board;
-        apply_move(&copy, &moves[i]);
+        apply_move_simple(&copy, &moves[i]);
         uint64_t count = perft(&copy, depth - 1);
 
         char move_str[8];
@@ -83,7 +92,8 @@ static const char* format_nps(double nps, char *buf, size_t buf_size) {
 
 void run_perft_tests_up_to(int max_depth) {
     ChessBoard board;
-    initialize_board(&board); // Assumes this sets up the starting position
+    initialize_board(&board); // This sets up the standard starting position
+    // No need to parse FEN - initialize_board already sets the correct starting position
 
     printf("%5s | %15s | %8s | %10s | %10s\n", "Depth", "Expected", "Time", "Nodes/s", "got");
     printf("------+-----------------+----------+------------+------------\n");
@@ -107,5 +117,23 @@ void run_perft_tests_up_to(int max_depth) {
 
     }
 
+}
+
+void run_perft_on_position(const ChessBoard *board, int max_depth) {
+    printf("Running perft tests on custom position up to depth %d\n", max_depth);
+    printf("%5s | %8s | %10s | %10s\n", "Depth", "Time", "Nodes/s", "Nodes");
+    printf("------+----------+------------+------------\n");
+
+    for (int depth = 1; depth <= max_depth; ++depth) {
+        clock_t start = clock();
+        uint64_t nodes = perft(board, depth);
+        double time = elapsed_seconds(start);
+        char nps_buf[32];
+        format_nps(nodes / time, nps_buf, sizeof(nps_buf));
+
+        printf("%5d | %6.2fs | %10s | %10llu\n",
+            depth, time, nps_buf, (unsigned long long)nodes
+        );
+    }
 }
 

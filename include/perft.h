@@ -32,6 +32,8 @@ static const PerftTest perft_tests[] = {
 static uint64_t perft(const ChessBoard *board, int depth);
 static void format_move(const ChessMove *move, char *out, size_t size);
 uint64_t perft_divide(const ChessBoard *board, int depth);
+uint64_t perft_public(const ChessBoard *board, int depth);
 void run_perft_tests_up_to(int max_depth);
+void run_perft_on_position(const ChessBoard *board, int max_depth);
 
 #endif // __PERFT_H__
