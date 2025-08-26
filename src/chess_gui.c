@@ -379,6 +379,33 @@ void draw_ui_panel(GameUIState *ui_state) {
             draw_text(ui_state->move_history[black_index], inner_x + col_num_w + col_white_w + 8, row_y + 8, 190, 190, 190, main_font);
         }
     }
+
+    // Draw scrollbar on right side of move history
+    if (total_rows > rows_can_show) {
+        int scrollbar_w = 8;
+        int scrollbar_x = mh_x + mh_w - 6; // small inset
+        int scrollbar_y = inner_y;
+        int scrollbar_h = inner_h;
+
+        // Background track
+        set_color(30, 32, 36, 200);
+        draw_filled_rectangle(scrollbar_x, scrollbar_y, scrollbar_w, scrollbar_h);
+
+        // Thumb size proportional to visible / total
+        float thumb_hf = (float)rows_can_show / (float)total_rows;
+        if (thumb_hf < 0.05f) thumb_hf = 0.05f; // min size
+        int thumb_h = (int)(thumb_hf * scrollbar_h);
+
+        // Thumb position based on offset
+        int max_offset = total_rows - rows_can_show;
+        if (max_offset < 1) max_offset = 1;
+        float thumb_pos_frac = (float)ui_state->move_history_scroll_offset / (float)max_offset;
+        int thumb_y = scrollbar_y + (int)(thumb_pos_frac * (scrollbar_h - thumb_h));
+
+        // Draw thumb
+        set_color(100, 100, 110, 200);
+        draw_filled_rectangle(scrollbar_x + 1, thumb_y + 1, scrollbar_w - 2, thumb_h - 2);
+    }
 }
 
 void draw_board_coordinates_dynamic(GameUIState *ui_state) {

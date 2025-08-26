@@ -12,6 +12,7 @@ int mouse_location[2] = {0, 0};
 int mouse_clicked = 0;
 int mouse_down = 0;
 int should_continue = 1;
+int mouse_wheel_delta = 0;
 
 void initialize_keyboard_state() {
     keyboard_state = SDL_GetKeyboardState(NULL);
@@ -62,10 +63,20 @@ void handle_events() {
                 mouse_down = 0;
                 mouse_clicked = 0;
                 break;
+            case SDL_MOUSEWHEEL:
+                // accumulate vertical wheel motion
+                mouse_wheel_delta += event.wheel.y;
+                break;
             default:
                 break;
         }
     }
+}
+
+int poll_mouse_wheel_delta() {
+    int v = mouse_wheel_delta;
+    mouse_wheel_delta = 0;
+    return v;
 }
 
 void clear_window() {

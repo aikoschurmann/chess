@@ -14,6 +14,7 @@ TTF_Font *large_font;
 int mouse_location[2];
 int mouse_clicked;
 int should_continue;
+int mouse_wheel_delta; // vertical wheel delta since last poll
 
 void initialize_keyboard_state();
 
@@ -22,6 +23,7 @@ int is_key_down(SDL_Scancode key);
 int is_key_up(SDL_Scancode key);
 
 void handle_events();
+int poll_mouse_wheel_delta();
 
 void clear_window();
 

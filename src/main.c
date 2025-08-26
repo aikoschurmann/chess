@@ -269,6 +269,14 @@ static void run_gui_mode(void) {
         if (is_key_down(SDL_SCANCODE_PAGEDOWN)) {
             handle_move_history_keyboard(&ui_state, SDLK_PAGEDOWN);
         }
+
+        // Mouse wheel scroll for move history
+        int wheel = poll_mouse_wheel_delta();
+        if (wheel != 0) {
+            // Positive wheel -> scroll up (older moves)
+            if (wheel > 0) scroll_move_history(&ui_state, -1);
+            else scroll_move_history(&ui_state, 1);
+        }
         
         // Handle mouse clicks for piece movement
         if (mouse_clicked == 1) {
