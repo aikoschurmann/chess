@@ -21,11 +21,6 @@ A professional-grade chess engine written in C, featuring optimized bitboard rep
 - **Command Line Interface**: Powerful CLI for testing, benchmarking, and debugging
 - **Debug Visualization**: Bitboard visualization for development and analysis
 
-## 📊 Performance Metrics
-
-- **Move Generation**: ~60 million nodes/second (perft depth 5)
-- **Code Base**: 1,858 lines of C code + 108K lines of generated magic tables
-- **Architecture**: Optimized for modern 64-bit processors with native instruction usage
 
 ## 🛠️ Build & Installation
 
