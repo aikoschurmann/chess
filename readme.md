@@ -198,10 +198,10 @@ make clean && make DEBUG=1
 
 ```
 Perft Results (Starting Position):
-Depth 1:        20 nodes |    1.0M nodes/sec
-Depth 2:       400 nodes |   57.1M nodes/sec  
-Depth 3:     8,902 nodes |   74.8M nodes/sec
-Depth 4:   197,281 nodes |   16.7M nodes/sec
-Depth 5: 4,865,609 nodes |   60.6M nodes/sec
+Depth 1:        20 nodes |    2.50M nodes/sec
+Depth 2:       400 nodes |   80.10M nodes/sec  
+Depth 3:     8,902 nodes |   80.80M nodes/sec
+Depth 4:   197,281 nodes |   81.72M nodes/sec
+Depth 5: 4,865,609 nodes |   80.68M nodes/sec
 ```
 

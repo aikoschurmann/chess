@@ -51,6 +51,6 @@ clean:
 
 # Run tests
 run: all
-	./$(OUT_DIR)/$(NAME)
+	./$(OUT_DIR)/$(NAME) --perft 6
 
 .PHONY: all clean run
