@@ -11,6 +11,7 @@
 #include "gui.h"
 #include "chess_bitboard.h"
 #include "chess_board.h"
+#include <pthread.h>
 
 SDL_Texture *white_pawn_image;
 SDL_Texture *black_pawn_image;
@@ -42,6 +43,14 @@ typedef struct {
     int selected_square;
     int last_move_from;
     int last_move_to;
+    // Search progress (for background engine runs)
+    int is_searching;              // non-zero while a background search is running
+    int search_done;               // becomes non-zero when a background search finished with a move
+    ChessMove search_best_move;    // latest best move reported by the search
+    int search_depth;              // current search depth being reported
+    int search_score;              // current score reported by search
+    unsigned int search_elapsed_ms; // elapsed ms since search started (updated by callback)
+    pthread_mutex_t search_lock;   // protect the search_* fields
     // Dynamic move history arrays
     char **move_history;     // Dynamic array of move strings
     ChessBoard *board_history;  // Dynamic array of board positions

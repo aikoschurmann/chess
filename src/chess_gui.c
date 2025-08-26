@@ -3,6 +3,44 @@
 #include <stdlib.h>
 #include <string.h>
 
+
+// Add includes if you don't already have SDL available here:
+#include <SDL.h>
+
+// Global detected display scale (1 = normal)
+static int UI_DISPLAY_SCALE = 1;
+
+// Call early after you create the SDL_Window and SDL_Renderer.
+void detect_display_scale(SDL_Window *window, SDL_Renderer *renderer) {
+    if (!window || !renderer) {
+        UI_DISPLAY_SCALE = 1;
+        return;
+    }
+
+    // Prefer renderer output size vs window size to detect DPI scaling.
+    int win_w = 0, win_h = 0;
+    int out_w = 0, out_h = 0;
+    SDL_GetWindowSize(window, &win_w, &win_h);
+    SDL_GetRendererOutputSize(renderer, &out_w, &out_h);
+
+    if (win_w > 0 && out_w > 0) {
+        // compute scale as nearest integer >=1 (common on many platforms)
+        float sx = (float)out_w / (float)win_w;
+        float sy = (float)out_h / (float)win_h;
+        float s = (sx > sy) ? sx : sy;
+        int is = (int)(s + 0.5f);
+        if (is < 1) is = 1;
+        UI_DISPLAY_SCALE = is;
+    } else {
+        UI_DISPLAY_SCALE = 1;
+    }
+
+    // Prefer linear sampling for smoother text and font scaling on HiDPI displays.
+    // "1" = linear; this improves TTF rendering quality when textures are scaled.
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1"); // "0" = nearest, "1" = linear, "2" = anisotropic
+}
+
+
 // Chess board color palette - inspired by traditional wooden boards
 static const int LIGHT_SQUARE_COLOR[4] = {240, 217, 181, 255};  // Cream/buff color
 static const int DARK_SQUARE_COLOR[4] = {181, 136, 99, 255};    // Warm brown color
@@ -273,24 +311,59 @@ void draw_ui_panel(GameUIState *ui_state) {
     // Give a bit more vertical space so small header widgets don't overlap
     ctrl_y += 28;
 
+    // Search progress area (show depth, score and small eval bar)
+    int search_y = ctrl_y;
+    int search_h = 48;
+    // Read search state under lock
+    int is_searching = 0;
+    int search_depth = 0;
+    int search_score = 0;
+    pthread_mutex_lock(&ui_state->search_lock);
+    is_searching = ui_state->is_searching;
+    search_depth = ui_state->search_depth;
+    search_score = ui_state->search_score;
+    pthread_mutex_unlock(&ui_state->search_lock);
+
+    if (is_searching) {
+        // Label
+        char buf[64];
+        sprintf(buf, "Searching: depth %d  score %d", search_depth, search_score);
+        draw_text(buf, panel_x + xpad, search_y, 200, 200, 200, main_font);
+
+        // Simple eval bar - center at 0; clamp score to [-1000,1000]
+        int bar_w = panel_w - xpad * 2;
+        int bar_x = panel_x + xpad;
+        int bar_y = search_y + 20;
+        int bar_h = 10;
+        set_color(40, 40, 40, 200);
+        draw_filled_rectangle(bar_x, bar_y, bar_w, bar_h);
+
+        int clamped = search_score;
+        if (clamped > 1000) clamped = 1000;
+        if (clamped < -1000) clamped = -1000;
+        // convert to fraction [-1,1]
+        float frac = (float)clamped / 1000.0f;
+        int mid = bar_x + bar_w / 2;
+        int fill_w = (int)((bar_w / 2) * fabs(frac));
+
+        if (frac > 0) {
+            // positive -> white advantage (light color)
+            set_color(200, 200, 255, 220);
+            draw_filled_rectangle(mid, bar_y, fill_w, bar_h);
+        } else if (frac < 0) {
+            // negative -> black advantage (darker)
+            set_color(200, 180, 180, 220);
+            draw_filled_rectangle(mid - fill_w, bar_y, fill_w, bar_h);
+        }
+
+        ctrl_y += search_h;
+    }
+
     // Move history container
     int mh_x = panel_x + xpad;
     int mh_w = panel_w - xpad * 2;
     int mh_h = panel_h - ctrl_y - 24;
-    // Draw follow-mode indicator in header area (top-right)
-    int box_size = 14;
-    int follow_x = mh_x + mh_w - xpad - box_size;
-    int follow_y = ctrl_y - 26; // sit slightly above the container
-    // subtle background for checkbox
-    set_color(40, 42, 46, 180);
-    draw_filled_rectangle(follow_x, follow_y, box_size, box_size);
-    // lighter border
-    set_color(110, 110, 110, 180);
-    draw_rectangle(follow_x, follow_y, box_size, box_size);
-    // Draw a subtle marker to indicate default auto-follow behavior (no toggle)
-    set_color(110, 110, 110, 120);
-    draw_rectangle(follow_x, follow_y, box_size, box_size);
-    draw_text("Auto", follow_x - 46, follow_y, 120, 120, 120, main_font);
+    // (Removed: small "Auto" indicator UI per user request)
     // container background
     set_color(24, 26, 30, 200);
     draw_filled_rectangle(mh_x, ctrl_y, mh_w, mh_h);
@@ -298,16 +371,21 @@ void draw_ui_panel(GameUIState *ui_state) {
     set_color(60, 60, 60, 150);
     draw_rectangle(mh_x, ctrl_y, mh_w, mh_h);
 
-    // Insets inside move history
-    int inner_x = mh_x + 10;
-    int inner_y = ctrl_y + 10;
-    int inner_w = mh_w - 20;
-    int inner_h = mh_h - 20;
+    // No inner padding: use full move-history container area per user request
+    int inner_x = mh_x;
+    int inner_y = ctrl_y;
+    int inner_w = mh_w;
+    int inner_h = mh_h;
 
     // Determine how many rows fit (each row height)
-    int row_h = 32;
+    const int desired_rows = 10;
+    // Compute row height so we can fit `desired_rows` when possible
+    int row_h = inner_h / desired_rows;
+    const int min_row_h = 20; // don't get too small
+    if (row_h < min_row_h) row_h = min_row_h;
     int rows_can_show = inner_h / row_h;
     if (rows_can_show < 1) return;
+    if (rows_can_show > desired_rows) rows_can_show = desired_rows;
 
     // Compute which rows to show with scroll support
     int total_rows = (ui_state->actual_move_count + 1) / 2; // each row = a full move (white+black)
@@ -353,10 +431,10 @@ void draw_ui_panel(GameUIState *ui_state) {
         }
 
         // Move number
-        char move_num_buf[8];
-        sprintf(move_num_buf, "%d.", row_idx + 1);
-        set_color(150, 150, 150, 255);
-        draw_text_centered(move_num_buf, inner_x, row_y + 8, col_num_w, 180, 180, 180, main_font);
+    char move_num_buf[8];
+    sprintf(move_num_buf, "%d", row_idx + 1);
+    set_color(150, 150, 150, 255);
+    draw_text_in_rect(move_num_buf, inner_x, row_y, col_num_w, row_h, 180, 180, 180, main_font);
 
         // white and black move indices in move_history
         int white_index = row_idx * 2;
@@ -372,15 +450,15 @@ void draw_ui_panel(GameUIState *ui_state) {
             if (white_viewing_highlight && ui_state->viewing_move_index != -1) {
                 // Yellow highlight for viewed position (when not current)
                 set_color(150, 120, 30, 100);
-                draw_filled_rectangle(inner_x + col_num_w, row_y + 4, col_white_w, row_h - 8);
+                draw_filled_rectangle(inner_x + col_num_w, row_y, col_white_w, row_h);
             } else if (white_last_move_highlight && ui_state->viewing_move_index == -1) {
                 // Blue highlight for current position (when viewing current)
                 set_color(60, 90, 150, 80);
-                draw_filled_rectangle(inner_x + col_num_w, row_y + 4, col_white_w, row_h - 8);
+                draw_filled_rectangle(inner_x + col_num_w, row_y, col_white_w, row_h);
             }
             
             set_color(230, 230, 230, 255);
-            draw_text(ui_state->move_history[white_index], inner_x + col_num_w + 8, row_y + 8, 220, 220, 220, main_font);
+            draw_text_in_rect(ui_state->move_history[white_index], inner_x + col_num_w, row_y, col_white_w, row_h, 220, 220, 220, main_font);
         }
 
         // Black move text (right column)
@@ -393,15 +471,15 @@ void draw_ui_panel(GameUIState *ui_state) {
             if (black_viewing_highlight && ui_state->viewing_move_index != -1) {
                 // Yellow highlight for viewed position (when not current)
                 set_color(150, 120, 30, 100);
-                draw_filled_rectangle(inner_x + col_num_w + col_white_w, row_y + 4, col_black_w, row_h - 8);
+                draw_filled_rectangle(inner_x + col_num_w + col_white_w, row_y, col_black_w, row_h);
             } else if (black_last_move_highlight && ui_state->viewing_move_index == -1) {
                 // Blue highlight for current position (when viewing current)
                 set_color(60, 90, 150, 80);
-                draw_filled_rectangle(inner_x + col_num_w + col_white_w, row_y + 4, col_black_w, row_h - 8);
+                draw_filled_rectangle(inner_x + col_num_w + col_white_w, row_y, col_black_w, row_h);
             }
             
             set_color(200, 200, 200, 255);
-            draw_text(ui_state->move_history[black_index], inner_x + col_num_w + col_white_w + 8, row_y + 8, 190, 190, 190, main_font);
+            draw_text_in_rect(ui_state->move_history[black_index], inner_x + col_num_w + col_white_w, row_y, col_black_w, row_h, 190, 190, 190, main_font);
         }
     }
 
@@ -575,14 +653,18 @@ int handle_move_history_click(int mouse_x, int mouse_y, GameUIState *ui_state) {
     }
     
     // Calculate which move was clicked
-    int inner_x = mh_x + 10;
-    int inner_y = ctrl_y + 10;
-    int inner_w = mh_w - 20;
-    int inner_h = mh_h - 20;
+    int inner_x = mh_x;
+    int inner_y = ctrl_y;
+    int inner_w = mh_w;
+    int inner_h = mh_h;
     
-    int row_h = 32;
+    const int desired_rows = 10;
+    int row_h = inner_h / desired_rows;
+    const int min_row_h = 20;
+    if (row_h < min_row_h) row_h = min_row_h;
     int rows_can_show = inner_h / row_h;
     if (rows_can_show < 1) return 0;
+    if (rows_can_show > desired_rows) rows_can_show = desired_rows;
     
     // Use the current scroll offset instead of auto-calculating
     int start_row = ui_state->move_history_scroll_offset;
@@ -678,10 +760,13 @@ int calculate_visible_rows(void) {
     ctrl_y += 40 + 20; // badge
     ctrl_y += 28; // move history header spacing
     int mh_h = panel_h - ctrl_y - 24;
-    int inner_h = mh_h - 20;
-    int row_h = 32;
+    int inner_h = mh_h; // use full height (no inner padding)
+    const int desired_rows = 10;
+    int row_h = inner_h / desired_rows;
+    const int min_row_h = 20;
+    if (row_h < min_row_h) row_h = min_row_h;
     int rows_can_show = inner_h / row_h;
-    
+    if (rows_can_show > desired_rows) rows_can_show = desired_rows;
     return (rows_can_show < 1) ? 1 : rows_can_show;
 }
 
@@ -864,3 +949,4 @@ void ensure_move_visible(GameUIState *ui_state) {
         }
     }
 }
+

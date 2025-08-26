@@ -31,6 +31,12 @@ void draw_rectangle(int x, int y, int width, int height);
 void draw_filled_rectangle(int x, int y, int width, int height);
 void draw_text(const char *text, int x, int y, int r, int g, int b, TTF_Font *font);
 void draw_text_centered(const char *text, int x, int y, int width, int r, int g, int b, TTF_Font *font);
+// Draw text centered inside a rectangle (both horizontally and vertically)
+void draw_text_in_rect(const char *text, int x, int y, int width, int height, int r, int g, int b, TTF_Font *font);
+// Key repeat helper: returns 1 when the key action should fire this frame.
+// Call each frame for the scancode you care about. initial_delay_ms is the
+// delay before repeating starts, repeat_ms is the interval between repeats.
+int key_repeat_should_fire(SDL_Scancode scancode, unsigned int initial_delay_ms, unsigned int repeat_ms);
 void initialize_window(const char *title, int window_width, int window_height);
 void cleanup();
 void present_window();

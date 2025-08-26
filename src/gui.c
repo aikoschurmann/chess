@@ -153,18 +153,21 @@ void draw_text(const char *text, int x, int y, int r, int g, int b, TTF_Font *fo
     if (!font || !text) return;
     
     SDL_Color color = {r, g, b, 255};
+    // Use blended rendering for best quality; wrapped variant guards against extremely long strings
     SDL_Surface *text_surface = TTF_RenderText_Blended(font, text, color);
     if (!text_surface) return;
-    
+
+    // Improve sharpness by creating texture with alpha blending
     SDL_Texture *text_texture = SDL_CreateTextureFromSurface(renderer, text_surface);
     if (!text_texture) {
         SDL_FreeSurface(text_surface);
         return;
     }
-    
+    SDL_SetTextureBlendMode(text_texture, SDL_BLENDMODE_BLEND);
+
     SDL_Rect dest_rect = {x, y, text_surface->w, text_surface->h};
     SDL_RenderCopy(renderer, text_texture, NULL, &dest_rect);
-    
+
     SDL_DestroyTexture(text_texture);
     SDL_FreeSurface(text_surface);
 }
@@ -177,6 +180,51 @@ void draw_text_centered(const char *text, int x, int y, int width, int r, int g,
     
     int centered_x = x + (width - text_width) / 2;
     draw_text(text, centered_x, y, r, g, b, font);
+}
+
+// Draw text centered both horizontally and vertically within a rectangle
+void draw_text_in_rect(const char *text, int x, int y, int width, int height, int r, int g, int b, TTF_Font *font) {
+    if (!font || !text) return;
+    int text_width = 0, text_height = 0;
+    TTF_SizeText(font, text, &text_width, &text_height);
+    int centered_x = x + (width - text_width) / 2;
+    int centered_y = y + (height - text_height) / 2;
+    draw_text(text, centered_x, centered_y, r, g, b, font);
+}
+
+// Simple key-repeat utility.
+// Returns 1 if the action bound to `scancode` should fire this frame.
+// It tracks state internally per-scancode.
+int key_repeat_should_fire(SDL_Scancode scancode, unsigned int initial_delay_ms, unsigned int repeat_ms) {
+    // We keep a small map of scancode -> next fire time. For simplicity use
+    // an array indexed by scancode (SDL_SCANCODE_* values are small).
+    static Uint32 next_fire[SDL_NUM_SCANCODES] = {0};
+    Uint32 now = SDL_GetTicks();
+
+    // If key was just pressed this frame, schedule initial delay and fire immediately
+    if (is_key_down(scancode)) {
+        next_fire[scancode] = now + initial_delay_ms;
+        return 1; // initial key-down triggers action immediately
+    }
+
+    // If key is held, check scheduled time
+    if (is_key_pressed(scancode)) {
+        if (next_fire[scancode] == 0) {
+            // Key pressed but we didn't schedule (edge-case) - schedule now
+            next_fire[scancode] = now + initial_delay_ms;
+            return 0;
+        }
+        if (now >= next_fire[scancode]) {
+            // Fire and schedule next
+            next_fire[scancode] = now + repeat_ms;
+            return 1;
+        }
+        return 0;
+    }
+
+    // Key released - clear schedule for this scancode
+    next_fire[scancode] = 0;
+    return 0;
 }
 
 void present_window(){

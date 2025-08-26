@@ -9,10 +9,13 @@
 #include "perft.h"
 #include "perft_test_suite.h"
 #include "bot.h"
+#include "engine.h"
 #include "magic_bitboards.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <pthread.h>
+#include <time.h>
 
 // Constants
 #define MAX_MOVES 256
@@ -44,6 +47,19 @@ static void render_game(ChessBoard *board, DebugState *debugstate,
                        unsigned long long moves_mask, GameUIState *ui_state);
 static void regenerate_moves(ChessBoard *board, ChessMove *moves, int *num_moves);
 static void update_game_state(ChessBoard *board, ChessMove *moves, int num_moves, GameUIState *ui_state);
+
+// Helper: map SDL scancode to SDLK-like identifier used by handlers
+static int scancode_to_sdlk(int sc) {
+    switch (sc) {
+        case SDL_SCANCODE_UP: return SDLK_UP;
+        case SDL_SCANCODE_DOWN: return SDLK_DOWN;
+        case SDL_SCANCODE_HOME: return SDLK_HOME;
+        case SDL_SCANCODE_END: return SDLK_END;
+        case SDL_SCANCODE_PAGEUP: return SDLK_PAGEUP;
+        case SDL_SCANCODE_PAGEDOWN: return SDLK_PAGEDOWN;
+        default: return 0;
+    }
+}
 
 int main(int argc, char const *argv[]) {
     // Initialize core engine components
@@ -156,6 +172,52 @@ static void regenerate_moves(ChessBoard *board, ChessMove *moves, int *num_moves
     verify_king_safety(board, moves, num_moves);
 }
 
+// Thread context for background search
+typedef struct { ChessBoard board; GameUIState *ui; struct timespec start_ts; } SearchThreadCtx;
+
+// Progress callback invoked by engine_search_iterative; cb_ctx is SearchThreadCtx*
+static void search_progress_cb(const ChessMove *m, int depth, int score, void *cb_ctx) {
+    SearchThreadCtx *ctx = (SearchThreadCtx*)cb_ctx;
+    GameUIState *ui = ctx->ui;
+    pthread_mutex_lock(&ui->search_lock);
+    ui->search_depth = depth;
+    ui->search_score = score;
+    ui->search_best_move = *m;
+    struct timespec now_ts;
+    clock_gettime(CLOCK_MONOTONIC, &now_ts);
+    ui->search_elapsed_ms = (unsigned int)((now_ts.tv_sec - ctx->start_ts.tv_sec) * 1000 + (now_ts.tv_nsec - ctx->start_ts.tv_nsec) / 1000000);
+    pthread_mutex_unlock(&ui->search_lock);
+}
+
+// Thread entry for background search
+static void *search_thread_entry(void *v) {
+    SearchThreadCtx *ctx = (SearchThreadCtx*)v;
+    ChessMove best = { .start_tile = -1, .end_tile = -1, .move_type = 0 };
+
+    // Mark searching
+    pthread_mutex_lock(&ctx->ui->search_lock);
+    ctx->ui->is_searching = 1;
+    ctx->ui->search_done = 0;
+    ctx->ui->search_depth = 0;
+    ctx->ui->search_score = 0;
+    ctx->ui->search_elapsed_ms = 0;
+    pthread_mutex_unlock(&ctx->ui->search_lock);
+
+    // Run iterative search (depth up to 10, 5000ms limit) — give more time for stronger play
+    int score = engine_search_iterative(&ctx->board, &best, 7, search_progress_cb, ctx, 5000);
+
+    // Write final result and mark done
+    pthread_mutex_lock(&ctx->ui->search_lock);
+    ctx->ui->search_best_move = best;
+    ctx->ui->search_score = score;
+    ctx->ui->is_searching = 0;
+    ctx->ui->search_done = 1;
+    pthread_mutex_unlock(&ctx->ui->search_lock);
+
+    free(ctx);
+    return NULL;
+}
+
 static void run_gui_mode(void) {
     // Game state
     DebugState debugstate = {PAWN, 1, 0};
@@ -194,8 +256,11 @@ static void run_gui_mode(void) {
     // Initialize game state
     update_game_state(&board, moves, num_moves, &ui_state);
     
+    // Initialize search mutex
+    pthread_mutex_init(&ui_state.search_lock, NULL);
+
     // Main game loop
-    while (should_continue) {
+        while (should_continue) {
         handle_events();
         handle_input(&debugstate);
         
@@ -250,23 +315,26 @@ static void run_gui_mode(void) {
             ui_state.move_count = 0;
         }
         
-        // Handle move history navigation with arrow keys
-        if (is_key_down(SDL_SCANCODE_UP)) {
+        // Handle move history navigation with arrow keys using key_repeat_should_fire
+        const unsigned int REPEAT_INITIAL_DELAY = 300; // ms
+        const unsigned int REPEAT_INTERVAL = 80; // ms
+
+        if (key_repeat_should_fire(SDL_SCANCODE_UP, REPEAT_INITIAL_DELAY, REPEAT_INTERVAL)) {
             handle_move_history_keyboard(&ui_state, SDLK_UP);
         }
-        if (is_key_down(SDL_SCANCODE_DOWN)) {
+        if (key_repeat_should_fire(SDL_SCANCODE_DOWN, REPEAT_INITIAL_DELAY, REPEAT_INTERVAL)) {
             handle_move_history_keyboard(&ui_state, SDLK_DOWN);
         }
-        if (is_key_down(SDL_SCANCODE_HOME)) {
+        if (key_repeat_should_fire(SDL_SCANCODE_HOME, REPEAT_INITIAL_DELAY, REPEAT_INTERVAL)) {
             handle_move_history_keyboard(&ui_state, SDLK_HOME);
         }
-        if (is_key_down(SDL_SCANCODE_END)) {
+        if (key_repeat_should_fire(SDL_SCANCODE_END, REPEAT_INITIAL_DELAY, REPEAT_INTERVAL)) {
             handle_move_history_keyboard(&ui_state, SDLK_END);
         }
-        if (is_key_down(SDL_SCANCODE_PAGEUP)) {
+        if (key_repeat_should_fire(SDL_SCANCODE_PAGEUP, REPEAT_INITIAL_DELAY, REPEAT_INTERVAL)) {
             handle_move_history_keyboard(&ui_state, SDLK_PAGEUP);
         }
-        if (is_key_down(SDL_SCANCODE_PAGEDOWN)) {
+        if (key_repeat_should_fire(SDL_SCANCODE_PAGEDOWN, REPEAT_INITIAL_DELAY, REPEAT_INTERVAL)) {
             handle_move_history_keyboard(&ui_state, SDLK_PAGEDOWN);
         }
 
@@ -290,11 +358,115 @@ static void run_gui_mode(void) {
         // Update game state (check, checkmate, stalemate)
         update_game_state(&board, moves, num_moves, &ui_state);
         
+        // If it's Black's turn and we're viewing the current position, start a background search
+        if (board.current_turn == BLACK && ui_state.viewing_move_index == -1) {
+            // If a search finished, apply the move first (avoid spawning new search
+            // threads before consuming finished results which can lead to races).
+            pthread_mutex_lock(&ui_state.search_lock);
+            int finished = ui_state.search_done;
+            if (finished) {
+                ChessMove bot_move = ui_state.search_best_move;
+                ui_state.search_done = 0;
+                pthread_mutex_unlock(&ui_state.search_lock);
+
+                // Validate the engine move against current legal moves
+                int legal_found = 0;
+                ChessMove legal_moves[256]; int legal_count = 0;
+                generate_moves_fast(&board, legal_moves, &legal_count);
+                verify_king_safety(&board, legal_moves, &legal_count);
+                for (int i = 0; i < legal_count; ++i) {
+                    if (legal_moves[i].start_tile == bot_move.start_tile && legal_moves[i].end_tile == bot_move.end_tile && legal_moves[i].promotion == bot_move.promotion && legal_moves[i].move_type == bot_move.move_type) { legal_found = 1; break; }
+                }
+
+                if (!legal_found) {
+                    fprintf(stderr, "[main] background search returned illegal move - ignoring\n");
+                } else {
+                    // Apply the validated move
+                    apply_move_simple(&board, &bot_move);
+
+                    // Update UI state with move information
+                    ui_state.last_move_from = bot_move.start_tile;
+                    ui_state.last_move_to = bot_move.end_tile;
+
+                    int rows_can_show = calculate_visible_rows();
+                    int total_rows_before = (ui_state.actual_move_count + 1) / 2;
+                    int max_offset_before = total_rows_before - rows_can_show;
+                    if (max_offset_before < 0) max_offset_before = 0;
+                    int was_at_bottom = (ui_state.move_history_scroll_offset >= max_offset_before);
+
+                    ui_state.actual_move_count++;
+                    ui_state.move_count = ui_state.actual_move_count;
+                    ui_state.viewing_move_index = -1;
+
+                    // Save board position
+                    save_board_position(&ui_state, &board);
+
+                    if (ui_state.actual_move_count > ui_state.move_history_capacity) {
+                        expand_move_history(&ui_state);
+                    }
+
+                    if (ui_state.actual_move_count <= ui_state.move_history_capacity) {
+                        char move_str[16];
+                        sprintf(move_str, "%c%d-%c%d",
+                            'a' + (bot_move.start_tile % 8), (bot_move.start_tile / 8) + 1,
+                            'a' + (bot_move.end_tile % 8), (bot_move.end_tile / 8) + 1);
+                        ui_state.move_history[ui_state.actual_move_count - 1] = malloc(16 * sizeof(char));
+                        if (ui_state.move_history[ui_state.actual_move_count - 1]) {
+                            strcpy(ui_state.move_history[ui_state.actual_move_count - 1], move_str);
+                        }
+                    }
+
+                    if (was_at_bottom) {
+                        int rows_can_show_new = calculate_visible_rows();
+                        int total_rows_new = (ui_state.actual_move_count + 1) / 2;
+                        int max_offset_new = total_rows_new - rows_can_show_new;
+                        if (max_offset_new < 0) max_offset_new = 0;
+                        ui_state.move_history_scroll_offset = max_offset_new;
+                    }
+
+                    // Regenerate moves after bot move and update UI
+                    regenerate_moves(&board, moves, &num_moves);
+                    ui_state.current_player = board.current_turn;
+                    update_game_state(&board, moves, num_moves, &ui_state);
+                }
+            } else {
+                pthread_mutex_unlock(&ui_state.search_lock);
+
+                // If not already searching, start one
+                pthread_mutex_lock(&ui_state.search_lock);
+                int already_searching = ui_state.is_searching;
+                pthread_mutex_unlock(&ui_state.search_lock);
+
+                if (!already_searching) {
+                    // Reserve search slot immediately under lock to avoid a race
+                    // where multiple frames spawn concurrent search threads.
+                    pthread_mutex_lock(&ui_state.search_lock);
+                    ui_state.is_searching = 1;
+                    ui_state.search_done = 0;
+                    ui_state.search_depth = 0;
+                    ui_state.search_score = 0;
+                    ui_state.search_elapsed_ms = 0;
+                    pthread_mutex_unlock(&ui_state.search_lock);
+
+                    // Launch background search thread using top-level SearchThreadCtx
+                    SearchThreadCtx *ctx = malloc(sizeof(SearchThreadCtx));
+                    ctx->board = board;
+                    ctx->ui = &ui_state;
+                    clock_gettime(CLOCK_MONOTONIC, &ctx->start_ts);
+
+                    pthread_t tid;
+                    pthread_create(&tid, NULL, search_thread_entry, ctx);
+                    pthread_detach(tid);
+                }
+            }
+        }
+        
         // Render everything
         render_game(&board, &debugstate, moves_mask, &ui_state);
     }
     
     // Cleanup dynamic memory before exit
+    pthread_mutex_destroy(&ui_state.search_lock);
     cleanup_move_history(&ui_state);
 }
 
