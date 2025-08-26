@@ -363,9 +363,10 @@ static int try_make_move(ChessBoard *board, ChessMove *moves, int num_moves,
             
             if (ui_state->actual_move_count <= ui_state->move_history_capacity) {
                 char move_str[16];
+                // Format move using board indexing where rank 1 is at bottom
                 sprintf(move_str, "%c%d-%c%d", 
-                    'a' + (from_tile % 8), 8 - (from_tile / 8),
-                    'a' + (to_tile % 8), 8 - (to_tile / 8));
+                    'a' + (from_tile % 8), (from_tile / 8) + 1,
+                    'a' + (to_tile % 8), (to_tile / 8) + 1);
                 
                 // Allocate memory for the move string
                 ui_state->move_history[ui_state->actual_move_count - 1] = malloc(16 * sizeof(char));
