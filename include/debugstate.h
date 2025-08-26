@@ -10,5 +10,5 @@ typedef struct {
     int should_draw_bitboards;     // 1 to draw bitboards, 0 to not draw them
 } DebugState;
 
-void draw_selected_bitboard(const DebugState *debugstate, ChessBoard *board);
+void draw_selected_bitboard(const DebugState *debugstate, ChessBoard *board, GameUIState *ui_state);
 #endif // DEBUGSTATE_H

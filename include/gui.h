@@ -2,11 +2,14 @@
 #define GUI2_H
 #include <SDL.h>
 #include <SDL_image.h>
+#include <SDL_ttf.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h> // Include for memcpy
 
 SDL_Renderer *renderer;
+TTF_Font *main_font;
+TTF_Font *large_font;
 
 int mouse_location[2];
 int mouse_clicked;
@@ -23,6 +26,9 @@ void handle_events();
 void clear_window();
 
 void draw_rectangle(int x, int y, int width, int height);
+void draw_filled_rectangle(int x, int y, int width, int height);
+void draw_text(const char *text, int x, int y, int r, int g, int b, TTF_Font *font);
+void draw_text_centered(const char *text, int x, int y, int width, int r, int g, int b, TTF_Font *font);
 void initialize_window(const char *title, int window_width, int window_height);
 void cleanup();
 void present_window();

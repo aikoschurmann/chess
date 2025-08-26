@@ -24,7 +24,7 @@ DEP_FILES = $(OBJ_FILES:.o=.d)
 # Flags
 CFLAGS = $(shell sdl2-config --cflags) -Iinclude -MMD -MP -g -O3 -march=native -flto
 
-LDFLAGS = $(shell sdl2-config --libs) -lSDL2_image -lm
+LDFLAGS = $(shell sdl2-config --libs) -lSDL2_image -lSDL2_ttf -lm
 
 # Targets
 all: $(OUT_DIR)/$(NAME)

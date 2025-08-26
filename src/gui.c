@@ -81,16 +81,47 @@ void initialize_window(const char *title, int window_width, int window_height) {
         exit(1);
     }
 
+    if (TTF_Init() < 0) {
+        printf("Could not initialize SDL_ttf: %s\n", TTF_GetError());
+        exit(1);
+    }
+
+    // Set high quality scaling
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
+
     window = SDL_CreateWindow(title, 0, 0, window_width, window_height, SDL_WINDOW_SHOWN);
     if (window == NULL) {
         printf("Couldn't set screen mode to required dimensions: %s\n", SDL_GetError());
         exit(1);
     }
 
-    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_PRESENTVSYNC);
+    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_PRESENTVSYNC | SDL_RENDERER_ACCELERATED);
+    
+    // Enable additional renderer quality settings
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    
+    // Load fonts (use system fonts as fallback)
+    main_font = TTF_OpenFont("/System/Library/Fonts/Helvetica.ttc", 16);
+    if (!main_font) {
+        main_font = TTF_OpenFont("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16);
+    }
+    if (!main_font) {
+        printf("Warning: Could not load font, text rendering disabled\n");
+    }
+    
+    large_font = TTF_OpenFont("/System/Library/Fonts/Helvetica.ttc", 24);
+    if (!large_font) {
+        large_font = TTF_OpenFont("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24);
+    }
+    if (!large_font && main_font) {
+        large_font = main_font; // Fallback to main font
+    }
 }
 
 void cleanup() {
+    if (main_font) TTF_CloseFont(main_font);
+    if (large_font && large_font != main_font) TTF_CloseFont(large_font);
+    TTF_Quit();
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
@@ -100,6 +131,41 @@ void cleanup() {
 void draw_rectangle(int x, int y, int width, int height) {
     SDL_Rect rectangle = { x, y, width, height};
     SDL_RenderFillRect(renderer, &rectangle);
+}
+
+void draw_filled_rectangle(int x, int y, int width, int height) {
+    SDL_Rect rectangle = { x, y, width, height};
+    SDL_RenderFillRect(renderer, &rectangle);
+}
+
+void draw_text(const char *text, int x, int y, int r, int g, int b, TTF_Font *font) {
+    if (!font || !text) return;
+    
+    SDL_Color color = {r, g, b, 255};
+    SDL_Surface *text_surface = TTF_RenderText_Blended(font, text, color);
+    if (!text_surface) return;
+    
+    SDL_Texture *text_texture = SDL_CreateTextureFromSurface(renderer, text_surface);
+    if (!text_texture) {
+        SDL_FreeSurface(text_surface);
+        return;
+    }
+    
+    SDL_Rect dest_rect = {x, y, text_surface->w, text_surface->h};
+    SDL_RenderCopy(renderer, text_texture, NULL, &dest_rect);
+    
+    SDL_DestroyTexture(text_texture);
+    SDL_FreeSurface(text_surface);
+}
+
+void draw_text_centered(const char *text, int x, int y, int width, int r, int g, int b, TTF_Font *font) {
+    if (!font || !text) return;
+    
+    int text_width, text_height;
+    TTF_SizeText(font, text, &text_width, &text_height);
+    
+    int centered_x = x + (width - text_width) / 2;
+    draw_text(text, centered_x, y, r, g, b, font);
 }
 
 void present_window(){

@@ -33,15 +33,17 @@ static const char *parse_fen_argument(int argc, char const *argv[]);
 static void print_help(const char *program_name);
 static void handle_mouse_click(ChessBoard *board, ChessMove *moves, int *num_moves,
                               int *selected_tile, ChessMove *tile_moves, 
-                              int *num_tile_moves, unsigned long long *moves_mask);
+                              int *num_tile_moves, unsigned long long *moves_mask,
+                              GameUIState *ui_state);
 static int try_make_move(ChessBoard *board, ChessMove *moves, int num_moves, 
-                        int from_tile, int to_tile);
+                        int from_tile, int to_tile, GameUIState *ui_state);
 static void select_piece(ChessBoard *board, ChessMove *moves, int num_moves, int tile,
                         int *selected_tile, ChessMove *tile_moves, 
                         int *num_tile_moves, unsigned long long *moves_mask);
 static void render_game(ChessBoard *board, DebugState *debugstate, 
-                       unsigned long long moves_mask);
+                       unsigned long long moves_mask, GameUIState *ui_state);
 static void regenerate_moves(ChessBoard *board, ChessMove *moves, int *num_moves);
+static void update_game_state(ChessBoard *board, ChessMove *moves, int num_moves, GameUIState *ui_state);
 
 int main(int argc, char const *argv[]) {
     // Initialize core engine components
@@ -160,6 +162,7 @@ static void run_gui_mode(void) {
     ChessBoard board;
     ChessMove moves[MAX_MOVES];
     ChessMove tile_moves[MAX_MOVES];
+    GameUIState ui_state = {0};  // Initialize UI state
     int num_moves = 0;
     int num_tile_moves = 0;
     unsigned long long moves_mask = 0;
@@ -172,51 +175,115 @@ static void run_gui_mode(void) {
     parse_fen(DEFAULT_FEN, &board);
     initialize_timer();
     
+    // Initialize UI state
+    ui_state.current_player = board.current_turn;
+    ui_state.show_coordinates = 1;  // Enable coordinates by default
+    ui_state.show_ui_panel = 1;     // Show UI panel by default
+    ui_state.show_move_hints = 1;   // Show move hints by default
+    ui_state.selected_square = -1;
+    ui_state.last_move_from = -1;
+    ui_state.last_move_to = -1;
+    
     // Generate initial moves
     regenerate_moves(&board, moves, &num_moves);
+    
+    // Initialize game state
+    update_game_state(&board, moves, num_moves, &ui_state);
     
     // Main game loop
     while (should_continue) {
         handle_events();
         handle_input(&debugstate);
         
-        // Handle board reset
+        // Handle keyboard controls
         if (is_key_down(SDL_SCANCODE_R)) {
             initialize_board(&board);
             selected_tile = -1;
             num_tile_moves = 0;
             moves_mask = 0;
+            ui_state.selected_square = -1;
+            ui_state.last_move_from = -1;
+            ui_state.last_move_to = -1;
+            ui_state.current_player = board.current_turn;
+            ui_state.move_count = 0;
             regenerate_moves(&board, moves, &num_moves);
+            update_game_state(&board, moves, num_moves, &ui_state);
+        }
+        
+        // Toggle UI panel with TAB key
+        if (is_key_down(SDL_SCANCODE_TAB)) {
+            ui_state.show_ui_panel = !ui_state.show_ui_panel;
+        }
+        
+        // Toggle coordinates with C key
+        if (is_key_down(SDL_SCANCODE_C)) {
+            ui_state.show_coordinates = !ui_state.show_coordinates;
+        }
+        
+        // Toggle move hints with H key
+        if (is_key_down(SDL_SCANCODE_H)) {
+            ui_state.show_move_hints = !ui_state.show_move_hints;
+        }
+        
+        // Test checkmate position with M key
+        if (is_key_down(SDL_SCANCODE_M)) {
+            // Set up a simple checkmate position: King on h8, Queen on g7, King on g6
+            const char *checkmate_fen = "7k/6Q1/6K1/8/8/8/8/8 b - - 0 1";
+            parse_fen(checkmate_fen, &board);
+            selected_tile = -1;
+            num_tile_moves = 0;
+            moves_mask = 0;
+            ui_state.selected_square = -1;
+            ui_state.last_move_from = -1;
+            ui_state.last_move_to = -1;
+            ui_state.current_player = board.current_turn;
+            ui_state.move_count = 0;
+            regenerate_moves(&board, moves, &num_moves);
+            update_game_state(&board, moves, num_moves, &ui_state);
         }
         
         // Handle mouse clicks for piece movement
         if (mouse_clicked == 1) {
             handle_mouse_click(&board, moves, &num_moves, &selected_tile, 
-                             tile_moves, &num_tile_moves, &moves_mask);
+                             tile_moves, &num_tile_moves, &moves_mask, &ui_state);
         }
         
+        // Update UI state
+        ui_state.selected_square = selected_tile;
+        
+        // Update game state (check, checkmate, stalemate)
+        update_game_state(&board, moves, num_moves, &ui_state);
+        
         // Render everything
-        render_game(&board, &debugstate, moves_mask);
+        render_game(&board, &debugstate, moves_mask, &ui_state);
     }
 }
 
 static void handle_mouse_click(ChessBoard *board, ChessMove *moves, int *num_moves,
                               int *selected_tile, ChessMove *tile_moves, 
-                              int *num_tile_moves, unsigned long long *moves_mask) {
+                              int *num_tile_moves, unsigned long long *moves_mask,
+                              GameUIState *ui_state) {
     int x = mouse_location[0];
     int y = mouse_location[1];
     
-    screen_to_chess_coordinates(&x, &y);
+    screen_to_chess_coordinates_dynamic(&x, &y, ui_state);
     int tile = y * 8 + x;
+    
+    // Check if click is outside the board
+    if (x < 0 || x >= 8 || y < 0 || y >= 8) {
+        return;  // Ignore clicks outside the board
+    }
     
     // Check if this is a move attempt (second click)
     if (*selected_tile != -1 && *selected_tile != tile) {
-        if (try_make_move(board, moves, *num_moves, *selected_tile, tile)) {
+        if (try_make_move(board, moves, *num_moves, *selected_tile, tile, ui_state)) {
             // Move was successful - reset selection and regenerate moves
             *selected_tile = -1;
             *num_tile_moves = 0;
             *moves_mask = 0;
             regenerate_moves(board, moves, num_moves);
+            ui_state->current_player = board->current_turn;
+            update_game_state(board, moves, *num_moves, ui_state);
             return;
         }
     }
@@ -227,11 +294,26 @@ static void handle_mouse_click(ChessBoard *board, ChessMove *moves, int *num_mov
 }
 
 static int try_make_move(ChessBoard *board, ChessMove *moves, int num_moves, 
-                        int from_tile, int to_tile) {
+                        int from_tile, int to_tile, GameUIState *ui_state) {
     // Find and execute the move if it exists
     for (int i = 0; i < num_moves; i++) {
         if (moves[i].start_tile == from_tile && moves[i].end_tile == to_tile) {
             apply_move_simple(board, &moves[i]);
+            
+            // Update UI state with move information
+            ui_state->last_move_from = from_tile;
+            ui_state->last_move_to = to_tile;
+            ui_state->move_count++;
+            
+            // Add move to history (simple notation for now)
+            if (ui_state->move_count <= 100) {
+                char move_str[16];
+                sprintf(move_str, "%c%d-%c%d", 
+                    'a' + (from_tile % 8), 8 - (from_tile / 8),
+                    'a' + (to_tile % 8), 8 - (to_tile / 8));
+                strcpy(ui_state->move_history[ui_state->move_count - 1], move_str);
+            }
+            
             return 1;  // Move successful
         }
     }
@@ -258,13 +340,60 @@ static void select_piece(ChessBoard *board, ChessMove *moves, int num_moves, int
 }
 
 static void render_game(ChessBoard *board, DebugState *debugstate, 
-                       unsigned long long moves_mask) {
+                       unsigned long long moves_mask, GameUIState *ui_state) {
     clear_window();
     
-    draw_chess_board();
-    draw_pieces(board);
-    draw_selected_bitboard(debugstate, board);
-    draw_bitboard_mask(moves_mask, 0, 255, 0, 100);
+    draw_chess_board_dynamic(ui_state);
+    
+    // Draw highlights before pieces
+    highlight_last_move(ui_state);
+    highlight_selected_square(ui_state);
+    
+    // Only draw move hints if enabled
+    if (ui_state->show_move_hints) {
+        draw_bitboard_mask_adaptive(moves_mask, ui_state);
+    }
+    
+    draw_pieces_dynamic(board, ui_state);
+    draw_selected_bitboard(debugstate, board, ui_state);
+    
+    // Draw coordinates if enabled
+    draw_board_coordinates_dynamic(ui_state);
+    
+    // Draw the UI panel (will handle visibility internally)
+    draw_ui_panel(ui_state);
     
     present_window();
+}
+
+static void update_game_state(ChessBoard *board, ChessMove *moves, int num_moves, GameUIState *ui_state) {
+    // Find the king position
+    Bitboard king_bb = board->pieces[board->current_turn][KING];
+    if (!king_bb) {
+        // No king found - shouldn't happen
+        ui_state->is_in_check = 0;
+        ui_state->is_checkmate = 0;
+        ui_state->is_stalemate = 0;
+        return;
+    }
+    
+    int king_square = __builtin_ctzll(king_bb);
+    ChessColor opponent = (board->current_turn == WHITE) ? BLACK : WHITE;
+    
+    // Check if king is in check
+    ui_state->is_in_check = is_square_attacked_by(board, king_square, opponent);
+    
+    // Determine checkmate or stalemate based on available moves
+    if (num_moves == 0) {
+        if (ui_state->is_in_check) {
+            ui_state->is_checkmate = 1;
+            ui_state->is_stalemate = 0;
+        } else {
+            ui_state->is_checkmate = 0;
+            ui_state->is_stalemate = 1;
+        }
+    } else {
+        ui_state->is_checkmate = 0;
+        ui_state->is_stalemate = 0;
+    }
 }
