@@ -6,7 +6,7 @@ A professional-grade chess engine written in C, featuring optimized bitboard rep
 
 ### Core Engine
 - **Magic Bitboard System**: Ultra-fast O(1) sliding piece attack generation using magic numbers
-- **Optimized Move Generation**: Staged move generation (captures, quiet moves, special moves) with ~60M nodes/sec performance
+- **Optimized Move Generation**: Staged move generation (captures, quiet moves, special moves) with ~80M nodes/sec performance
 - **Complete Rule Implementation**: Full chess rules including castling, en passant, promotions, and king safety
 - **Advanced Move Application**: Fast make/unmake system with proper state restoration for search algorithms
 
